@@ -34,6 +34,7 @@ class TimetableSlotResponse(BaseModel):
 
 # --- Routes ---
 
+@router.post("", response_model=TimetableSlotResponse)
 @router.post("/", response_model=TimetableSlotResponse)
 async def create_timetable_slot(
     data: TimetableSlotCreate,

@@ -3,6 +3,7 @@ from auth import get_current_user
 
 router = APIRouter(prefix="/notifications", tags=["Notifications"])
 
+@router.get("")
 @router.get("/")
 async def get_notifications(current_user = Depends(get_current_user)):
     """Fetch notifications for the current user (Placeholder)"""

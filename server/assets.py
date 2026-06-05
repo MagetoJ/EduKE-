@@ -45,6 +45,7 @@ class MovementResponse(BaseModel):
 
 # --- Routes ---
 
+@router.get("", response_model=List[AssetResponse])
 @router.get("/", response_model=List[AssetResponse])
 async def get_assets(
     db: AsyncSession = Depends(get_db),
@@ -56,6 +57,7 @@ async def get_assets(
     )
     return result.scalars().all()
 
+@router.post("", response_model=AssetResponse)
 @router.post("/", response_model=AssetResponse)
 async def create_asset(
     data: AssetCreate,

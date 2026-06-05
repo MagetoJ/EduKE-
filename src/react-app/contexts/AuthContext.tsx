@@ -211,7 +211,10 @@ const AuthProvider = ({ children }: { children: React.ReactNode }) => {
     try {
       const response = await fetch(`/api/auth/refresh-token`, {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        headers: { 
+          'Content-Type': 'application/json',
+          ...(token ? { 'Authorization': `Bearer ${token}` } : {})
+        },
         credentials: 'include',
         body: JSON.stringify({ refreshToken })
       });

@@ -33,7 +33,7 @@ const NotificationsProvider = ({ children }: { children: React.ReactNode }) => {
   const [unreadCount, setUnreadCount] = useState(0);
   const [isLoading, setIsLoading] = useState(false);
   const api = useApi();
-  const { user } = useAuth();
+  const { user, token } = useAuth();
 
   const fetchNotifications = useCallback(async () => {
     if (!user) return; // Don't fetch if no user
@@ -140,7 +140,7 @@ const NotificationsProvider = ({ children }: { children: React.ReactNode }) => {
   }, []);
 
   useEffect(() => {
-    if (!user) {
+    if (!user || !token) {
       setNotifications([]);
       setUnreadCount(0);
       return;
@@ -150,7 +150,7 @@ const NotificationsProvider = ({ children }: { children: React.ReactNode }) => {
 
     const interval = setInterval(fetchNotifications, 30000);
     return () => clearInterval(interval);
-  }, [fetchNotifications, user]);
+  }, [fetchNotifications, user, token]);
 
   const value: NotificationsContextType = {
     notifications,

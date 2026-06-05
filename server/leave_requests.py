@@ -7,6 +7,7 @@ from auth import get_current_school
 
 router = APIRouter(prefix="/leave-requests", tags=["Leave Management"])
 
+@router.get("")
 @router.get("/")
 async def get_leave_requests(
     school = Depends(get_current_school),

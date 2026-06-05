@@ -29,6 +29,7 @@ class UserResponse(BaseModel):
 
 # --- Routes ---
 
+@router.get("", response_model=List[UserResponse])
 @router.get("/", response_model=List[UserResponse])
 async def get_school_users(
     role: Optional[UserRole] = None,
@@ -47,6 +48,7 @@ async def get_school_users(
     result = await db.execute(query)
     return result.scalars().all()
 
+@router.post("", response_model=UserResponse)
 @router.post("/", response_model=UserResponse)
 async def create_school_user(
     data: UserCreate,

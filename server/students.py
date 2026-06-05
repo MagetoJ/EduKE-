@@ -26,6 +26,7 @@ class StudentResponse(StudentCreate):
 
 # --- Routes ---
 
+@router.get("", response_model=List[StudentResponse])
 @router.get("/", response_model=List[StudentResponse])
 async def get_students(
     db: AsyncSession = Depends(get_db),
@@ -37,6 +38,7 @@ async def get_students(
     )
     return result.scalars().all()
 
+@router.post("", response_model=StudentResponse)
 @router.post("/", response_model=StudentResponse)
 async def create_student(
     student_data: StudentCreate,

@@ -36,19 +36,29 @@ from notifications import router as notifications_router
 # Setup logging
 logger = logging.getLogger(__name__)
 
-app = FastAPI(title="EduKE API", version="1.0.0")
+app = FastAPI(title="EduKE API", version="1.0.0", redirect_slashes=False)
 
-app.include_router(students_router)
-app.include_router(payments_router)
-app.include_router(assets_router)
-app.include_router(users_router)
-app.include_router(exams_router)
-app.include_router(timetables_router)
-app.include_router(attendance_router)
-app.include_router(platform_router)
-app.include_router(dashboard_router)
-app.include_router(leave_router)
-app.include_router(notifications_router)
+app.include_router(students_router, prefix="/api", dependencies=[Depends(get_current_user)])
+app.include_router(payments_router, prefix="/api", dependencies=[Depends(get_current_user)])
+app.include_router(assets_router, prefix="/api", dependencies=[Depends(get_current_user)])
+app.include_router(users_router, prefix="/api", dependencies=[Depends(get_current_user)])
+app.include_router(exams_router, prefix="/api", dependencies=[Depends(get_current_user)])
+app.include_router(timetables_router, prefix="/api", dependencies=[Depends(get_current_user)])
+app.include_router(attendance_router, prefix="/api", dependencies=[Depends(get_current_user)])
+app.include_router(platform_router, prefix="/api", dependencies=[Depends(get_current_user)])
+app.include_router(dashboard_router, prefix="/api", dependencies=[Depends(get_current_user)])
+
+app.include_router(
+    leave_router, 
+    prefix="/api", 
+    dependencies=[Depends(get_current_user)]
+)
+
+app.include_router(
+    notifications_router, 
+    prefix="/api", 
+    dependencies=[Depends(get_current_user)]
+)
 
 # CORS configuration - Borrowed from SmartBiz main.py
 app.add_middleware(
@@ -96,8 +106,10 @@ class LoginRequest(BaseModel):
 
 # ==================== AUTH ROUTES ====================
 
-@app.post("/auth/register-school")
-@app.post("/register-school") # Compatibility with frontend
+@app.post("/api/auth/register-school")
+@app.post("/api/auth/register-school/")
+@app.post("/api/register-school")
+@app.post("/api/register-school/")
 async def register_school(data: SchoolRegister, db: AsyncSession = Depends(get_db)):
     """Registers a new School and its first Admin user (Aligned with Frontend)"""
     
@@ -145,8 +157,10 @@ async def register_school(data: SchoolRegister, db: AsyncSession = Depends(get_d
     await db.commit()
     return {"message": f"School {data.schoolName} registered successfully", "school_id": new_school.id}
 
-@app.post("/auth/login")
-@app.post("/login") # Compatibility with frontend
+@app.post("/api/auth/login")
+@app.post("/api/auth/login/")
+@app.post("/api/login")
+@app.post("/api/login/")
 async def login(data: LoginRequest, db: AsyncSession = Depends(get_db)):
     """Login and return a token scoped to the user's school (Aligned with Frontend)"""
     
@@ -169,7 +183,7 @@ async def login(data: LoginRequest, db: AsyncSession = Depends(get_db)):
         raise HTTPException(status_code=403, detail="User is not assigned to an active school")
 
     school_id = membership[0] if membership else None
-    role = membership[1] if membership else "superadmin"
+    role = membership[1] if membership else "super_admin"
     school_name = None
 
     if school_id:
@@ -205,14 +219,16 @@ async def login(data: LoginRequest, db: AsyncSession = Depends(get_db)):
 class RefreshRequest(BaseModel):
     refreshToken: str
 
-@app.post("/auth/refresh-token")
-async def refresh_token(request: Request):
+@app.post("/api/auth/refresh-token")
+@app.post("/api/auth/refresh-token/")
+@app.post("/api/refresh-token")
+async def refresh_token(data: RefreshRequest, request: Request):
     """Stub to prevent 404/401 in frontend background refresh"""
+    # The frontend refreshSession() currently doesn't send the Bearer token in headers.
+    # We look for the token in headers if provided to identify the user.
     auth_header = request.headers.get("Authorization")
-    token = None
-    if auth_header and auth_header.startswith("Bearer "):
-        token = auth_header.split(" ")[1]
-    
+    token = auth_header.split(" ")[1] if auth_header and auth_header.startswith("Bearer ") else None
+
     if token:
         try:
             # Decode without expiration check to identify user for refresh
@@ -235,19 +251,16 @@ async def refresh_token(request: Request):
         except Exception as e:
             logger.error(f"Refresh failed: {e}")
 
-    return JSONResponse(
-        status_code=401,
-        content={"success": False, "detail": "Invalid or missing token"}
-    )
+    raise HTTPException(status_code=401, detail="Session expired - please login again")
 
 # ==================== BASIC ROUTES ====================
 
-@app.get("/health")
+@app.get("/api/health")
 async def health_check():
     """Platform health check"""
     return {"status": "healthy", "service": "EduKE API"}
 
-@app.get("/schools")
+@app.get("/api/schools")
 async def list_schools_compatibility(
     db: AsyncSession = Depends(get_db), 
     _ = Depends(get_current_super_admin)
@@ -263,16 +276,6 @@ async def list_schools_compatibility(
         "revenue": "0",
         "status": s.status
     } for s in schools]
-
-@app.get("/notifications")
-async def get_notifications_stub():
-    """Stub to prevent 404 in frontend background refresh"""
-    return {"success": True, "data": []}
-
-@app.get("/leave-requests")
-async def get_leave_requests_stub():
-    """Stub to prevent 404 in dashboard"""
-    return {"success": True, "data": []}
 
 @app.get("/")
 async def root():

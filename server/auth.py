@@ -18,7 +18,7 @@ SECRET_KEY = os.getenv("JWT_SECRET", "your-super-secret-jwt-key-change-this-in-p
 ALGORITHM = "HS256"
 ACCESS_TOKEN_EXPIRE_MINUTES = 1440  # 24 hours for development convenience
 
-oauth2_scheme = OAuth2PasswordBearer(tokenUrl="auth/login")
+oauth2_scheme = OAuth2PasswordBearer(tokenUrl="/api/auth/login")
 
 # --- REPLACING BROKEN PASSLIB BCRYPT CONTEXT ---
 # We use the native python-bcrypt library directly to avoid passlib bugs
@@ -105,6 +105,11 @@ async def get_current_school(token_data: tuple = Depends(get_current_user), db: 
     school_id = payload.get("school_id")
     
     if not school_id:
+        # Fix 3: Handle Multi-Tenancy Scoping Exceptions for Super Admins
+        # Allow super admins to bypass school-scoping requirements
+        if user.is_super_admin:
+            return None
+            
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN, 
             detail="Access token is not scoped to a specific school"

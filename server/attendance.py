@@ -29,6 +29,7 @@ class AttendanceResponse(BaseModel):
 
 # --- Routes ---
 
+@router.post("")
 @router.post("/")
 async def record_attendance(
     records: List[AttendanceCreate],
