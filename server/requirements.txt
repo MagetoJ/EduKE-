@@ -11,3 +11,4 @@ tenacity==9.0.0
 python-multipart==0.0.17
 python-dotenv==1.0.1
 email-validator
+psycopg2-binary

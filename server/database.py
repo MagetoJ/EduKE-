@@ -42,7 +42,7 @@ async def get_db():
         finally:
             await session.close()
 
-@retry(stop=stop_after_attempt(5), wait=wait_fixed(2))
+@retry(stop=stop_after_attempt(5), wait=wait_fixed(2), reraise=True)
 async def init_db():
     """Initialize database tables with retry logic - SmartBiz pattern"""
     try:
