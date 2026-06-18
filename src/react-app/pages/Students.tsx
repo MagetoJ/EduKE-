@@ -175,12 +175,20 @@ export default function Students() {
     }
   }
 
-  const filteredStudents = students.filter(student =>
-    student.first_name.toLowerCase().includes(searchQuery.toLowerCase()) ||
-    student.last_name.toLowerCase().includes(searchQuery.toLowerCase()) ||
-    student.admission_number.toLowerCase().includes(searchQuery.toLowerCase()) ||
-    student.email.toLowerCase().includes(searchQuery.toLowerCase())
-  )
+  const filteredStudents = (Array.isArray(students) ? students : []).filter(student => {
+    // Skip if the student object is undefined or null
+    if (!student) return false;
+    
+    const searchLower = (searchQuery || '').toLowerCase();
+    
+    // Safely fallback to empty strings if any field is null/undefined
+    return (
+      (student.first_name || '').toLowerCase().includes(searchLower) ||
+      (student.last_name || '').toLowerCase().includes(searchLower) ||
+      (student.admission_number || '').toLowerCase().includes(searchLower) ||
+      (student.email || '').toLowerCase().includes(searchLower)
+    );
+  });
 
   const getStatusColor = (status: string) => {
     switch(status) {

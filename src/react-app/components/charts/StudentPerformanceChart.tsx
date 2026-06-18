@@ -115,7 +115,7 @@ export function StudentPerformanceChart() {
                   borderColor: "hsl(var(--border))",
                   borderRadius: "var(--radius)",
                 }}
-                formatter={(value: number, name: string) => [
+                formatter={(value: any, name: any) => [
                   name === "average" ? `${value}%` : value,
                   name === "average" ? "Average Grade" : "Students",
                 ]}

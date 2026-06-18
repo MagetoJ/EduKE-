@@ -117,7 +117,7 @@ export function FinancialSummaryChart() {
                   borderColor: "hsl(var(--border))",
                   borderRadius: "var(--radius)",
                 }}
-                formatter={(value: number) => [`$${value}`, ""]}
+                formatter={(value: any) => [`$${value}`, ""]}
               />
               <Legend />
               <Bar

@@ -1,4 +1,4 @@
-from sqlalchemy import Column, Integer, String, Float, DateTime, ForeignKey, Boolean, Text, Enum as SQLEnum, Table, UniqueConstraint, Index, Date, JSON
+from sqlalchemy import Column, Integer, String, Float, DateTime, ForeignKey, Boolean, Text, Enum as SQLEnum, Table, UniqueConstraint, Index, Date, JSON, Time
 from sqlalchemy.orm import relationship, backref
 from datetime import datetime, timedelta
 import enum
@@ -341,3 +341,87 @@ class AdminActivityLog(Base):
     # Relationships
     admin = relationship("User")
     target_school = relationship("School")
+
+# ==================== TRANSPORT MANAGEMENT ====================
+
+class TransportRoute(Base):
+    __tablename__ = "transport_routes"
+
+    id = Column(Integer, primary_key=True, index=True)
+    school_id = Column(Integer, ForeignKey("schools.id", ondelete="CASCADE"), nullable=False)
+    route_name = Column(String(255), nullable=False)
+    route_code = Column(String(50))
+    start_location = Column(String(255))
+    end_location = Column(String(255))
+    pickup_time = Column(Time)
+    dropoff_time = Column(Time)
+    vehicle_type = Column(String(50))
+    capacity = Column(Integer)
+    driver_id = Column(Integer, ForeignKey("users.id", ondelete="SET NULL"))
+    fare_amount = Column(Float)
+    status = Column(String(20), default="active")
+    
+    created_at = Column(DateTime, default=datetime.utcnow)
+
+    school = relationship("School")
+    enrollments = relationship("TransportEnrollment", back_populates="route")
+
+class TransportEnrollment(Base):
+    __tablename__ = "transport_enrollments"
+
+    id = Column(Integer, primary_key=True, index=True)
+    school_id = Column(Integer, ForeignKey("schools.id", ondelete="CASCADE"), nullable=False)
+    student_id = Column(Integer, ForeignKey("students.id", ondelete="CASCADE"), nullable=False)
+    route_id = Column(Integer, ForeignKey("transport_routes.id", ondelete="CASCADE"), nullable=False)
+    
+    amount_due = Column(Float)
+    start_date = Column(Date)
+    end_date = Column(Date)
+    status = Column(String(20), default="active")
+    created_at = Column(DateTime, default=datetime.utcnow)
+
+    school = relationship("School")
+    student = relationship("Student")
+    route = relationship("TransportRoute", back_populates="enrollments")
+
+
+# ==================== BOARDING MANAGEMENT ====================
+
+class BoardingHouse(Base):
+    __tablename__ = "boarding_houses"
+
+    id = Column(Integer, primary_key=True, index=True)
+    school_id = Column(Integer, ForeignKey("schools.id", ondelete="CASCADE"), nullable=False)
+    house_name = Column(String(255), nullable=False)
+    house_code = Column(String(50))
+    capacity = Column(Integer)
+    gender_type = Column(String(20)) # boys, girls, mixed
+    fee_amount = Column(Float)
+    status = Column(String(20), default="active")
+    
+    house_master_id = Column(Integer, ForeignKey("users.id", ondelete="SET NULL"))
+    deputy_master_id = Column(Integer, ForeignKey("users.id", ondelete="SET NULL"))
+
+    created_at = Column(DateTime, default=datetime.utcnow)
+
+    school = relationship("School")
+    enrollments = relationship("BoardingEnrollment", back_populates="house")
+
+class BoardingEnrollment(Base):
+    __tablename__ = "boarding_enrollments"
+
+    id = Column(Integer, primary_key=True, index=True)
+    school_id = Column(Integer, ForeignKey("schools.id", ondelete="CASCADE"), nullable=False)
+    student_id = Column(Integer, ForeignKey("students.id", ondelete="CASCADE"), nullable=False)
+    boarding_house_id = Column(Integer, ForeignKey("boarding_houses.id", ondelete="CASCADE"), nullable=False)
+    room_id = Column(Integer) # Can be linked to a BoardingRoom model later
+    academic_year_id = Column(Integer)
+    
+    amount_due = Column(Float)
+    check_in_date = Column(Date)
+    check_out_date = Column(Date)
+    status = Column(String(20), default="active")
+
+    school = relationship("School")
+    student = relationship("Student")
+    house = relationship("BoardingHouse", back_populates="enrollments")

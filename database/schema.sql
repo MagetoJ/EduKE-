@@ -1275,6 +1275,70 @@ CREATE TABLE IF NOT EXISTS transport_attendance (
     UNIQUE(school_id, student_id, attendance_date)
 );
 
+-- ============================================
+-- LIBRARY MANAGEMENT SYSTEM
+-- ============================================
+
+-- Library Books Catalog
+CREATE TABLE IF NOT EXISTS library_books (
+    id SERIAL PRIMARY KEY,
+    school_id INT NOT NULL REFERENCES schools(id) ON DELETE CASCADE,
+    
+    title VARCHAR(255) NOT NULL,
+    author VARCHAR(255),
+    isbn VARCHAR(50),
+    publisher VARCHAR(100),
+    publication_year INT,
+    
+    -- Categorization
+    category VARCHAR(100), -- e.g., Fiction, Science, History, CBC Textbooks
+    subject_id INT REFERENCES subjects(id) ON DELETE SET NULL,
+    
+    -- Inventory
+    total_copies INT DEFAULT 1,
+    available_copies INT DEFAULT 1,
+    location_rack VARCHAR(50),
+    
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+);
+
+CREATE INDEX idx_library_books_school ON library_books(school_id);
+CREATE INDEX idx_library_books_category ON library_books(category);
+
+-- Book Issues & Returns
+CREATE TABLE IF NOT EXISTS library_issues (
+    id SERIAL PRIMARY KEY,
+    school_id INT NOT NULL REFERENCES schools(id) ON DELETE CASCADE,
+    book_id INT NOT NULL REFERENCES library_books(id) ON DELETE CASCADE,
+    
+    -- Who borrowed it? (Can be student or staff)
+    student_id INT REFERENCES students(id) ON DELETE CASCADE,
+    staff_id INT REFERENCES users(id) ON DELETE CASCADE,
+    
+    issue_date DATE NOT NULL DEFAULT CURRENT_DATE,
+    due_date DATE NOT NULL,
+    return_date DATE,
+    
+    status VARCHAR(20) DEFAULT 'issued' CHECK (status IN ('issued', 'returned', 'overdue', 'lost')),
+    
+    -- Fines tracking
+    fine_amount DECIMAL(10,2) DEFAULT 0.00,
+    fine_paid BOOLEAN DEFAULT FALSE,
+    
+    issued_by INT REFERENCES users(id) ON DELETE SET NULL,
+    
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    
+    -- Ensure either a student or staff borrowed it, not both or neither
+    CHECK ((student_id IS NOT NULL AND staff_id IS NULL) OR (student_id IS NULL AND staff_id IS NOT NULL))
+);
+
+CREATE INDEX idx_library_issues_book ON library_issues(book_id);
+CREATE INDEX idx_library_issues_student ON library_issues(student_id);
+CREATE INDEX idx_library_issues_status ON library_issues(status);
+
 CREATE INDEX idx_transport_attendance_school ON transport_attendance(school_id);
 
 -- ============================================

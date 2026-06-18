@@ -142,8 +142,7 @@ export function SubscriptionStatusChart() {
                       backgroundColor: "hsl(var(--background))",
                       borderColor: "hsl(var(--border))",
                       borderRadius: "var(--radius)",
-                    }}
-                    formatter={(value: number, name: string) => [
+                    }}                    formatter={(value: any, name: any) => [
                       name === "revenue" ? `$${value}` : value,
                       name === "revenue" ? "Revenue" : "Subscribers",
                     ]}
@@ -186,8 +185,8 @@ export function SubscriptionStatusChart() {
                         data={statusData}
                         cx="50%"
                         cy="50%"
-                        labelLine={false}
-                        label={({ status, subscribers }) => `${status}: ${subscribers}`}
+                        labelLine={false} 
+                        label={({ status, subscribers }: any) => `${status}: ${subscribers}`}
                         outerRadius={80}
                         fill="#8884d8"
                         dataKey="subscribers"
@@ -213,7 +212,7 @@ export function SubscriptionStatusChart() {
                       <XAxis dataKey="status" />
                       <YAxis />
                       <Tooltip
-                        formatter={(value: number) => [`$${value}`, "Revenue"]}
+                        formatter={(value: any) => [`$${value}`, "Revenue"]}
                         contentStyle={{
                           backgroundColor: "hsl(var(--background))",
                           borderColor: "hsl(var(--border))",

@@ -1,4 +1,8 @@
+from stubs import router as stubs_router
 from fastapi import FastAPI, Depends, HTTPException, status, Request
+from assignments import router as assignments_router
+from transport_boarding import router as transport_router
+from library import router as library_router
 from fastapi.responses import JSONResponse
 from fastapi.middleware.cors import CORSMiddleware
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -32,6 +36,7 @@ from platform_admin import router as platform_router
 from dashboard import router as dashboard_router
 from leave_requests import router as leave_router
 from notifications import router as notifications_router
+from transport_boarding import router as transport_boarding_router
 
 # Setup logging
 logger = logging.getLogger(__name__)
@@ -47,7 +52,12 @@ app.include_router(timetables_router, prefix="/api", dependencies=[Depends(get_c
 app.include_router(attendance_router, prefix="/api", dependencies=[Depends(get_current_user)])
 app.include_router(platform_router, prefix="/api", dependencies=[Depends(get_current_user)])
 app.include_router(dashboard_router, prefix="/api", dependencies=[Depends(get_current_user)])
+app.include_router(stubs_router, dependencies=[Depends(get_current_user)])
 
+# Also ensure your other newly built routers are included here if they aren't already:
+app.include_router(assignments_router, dependencies=[Depends(get_current_user)])
+app.include_router(transport_router, dependencies=[Depends(get_current_user)])
+app.include_router(library_router, dependencies=[Depends(get_current_user)])
 app.include_router(
     leave_router, 
     prefix="/api", 
@@ -57,6 +67,12 @@ app.include_router(
 app.include_router(
     notifications_router, 
     prefix="/api", 
+    dependencies=[Depends(get_current_user)]
+)
+
+app.include_router(
+    transport_boarding_router,
+    prefix="/api",
     dependencies=[Depends(get_current_user)]
 )
 
