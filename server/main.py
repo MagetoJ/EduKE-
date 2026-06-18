@@ -73,6 +73,7 @@ app.include_router(
 app.add_middleware(
     CORSMiddleware,
     allow_origins=[
+        "https://eduke.netlify.app",
         "http://localhost:5173", 
         "https://eduke.app",
         "https://www.eduke.app",
