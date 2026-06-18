@@ -1,0 +1,17 @@
+# 1. Build Settings: Tells Netlify how to compile your React app
+[build]
+  command = "npm run build"
+  publish = "dist"
+
+# 2. API Routing Proxy: Forwards your login and backend requests to Render
+[[redirects]]
+  from = "/api/*"
+  to = "https://eduke-hhtz.onrender.com/api/:splat"
+  status = 200
+  force = true
+
+# 3. SPA Routing Fallback: Prevents 404s when users refresh pages like eduke.app/dashboard
+[[redirects]]
+  from = "/*"
+  to = "/index.html"
+  status = 200
