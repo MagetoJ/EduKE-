@@ -1,7 +1,6 @@
 from stubs import router as stubs_router
 from fastapi import FastAPI, Depends, HTTPException, status, Request
 from assignments import router as assignments_router
-from transport_boarding import router as transport_router
 from library import router as library_router
 from fastapi.responses import JSONResponse
 from fastapi.middleware.cors import CORSMiddleware
@@ -36,7 +35,7 @@ from platform_admin import router as platform_router
 from dashboard import router as dashboard_router
 from leave_requests import router as leave_router
 from notifications import router as notifications_router
-from transport_boarding import router as transport_boarding_router
+from transport_boarding import router as transport_router
 
 # Setup logging
 logger = logging.getLogger(__name__)
@@ -70,19 +69,14 @@ app.include_router(
     dependencies=[Depends(get_current_user)]
 )
 
-app.include_router(
-    transport_boarding_router,
-    prefix="/api",
-    dependencies=[Depends(get_current_user)]
-)
-
 # CORS configuration - Borrowed from SmartBiz main.py
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["http://localhost:5173"], # Your Vite frontend port
-    # "https://your-new-netlify-url.netlify.app", # You can keep or remove this
-    "https://eduke.app",                        # <-- ADD THIS
-    "https://www.eduke.app"                     # <-- AND THIS
+    allow_origins=[
+        "http://localhost:5173", 
+        "https://eduke.app",
+        "https://www.eduke.app",
+    ],
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
