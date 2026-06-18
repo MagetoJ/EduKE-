@@ -80,6 +80,9 @@ app.include_router(
 app.add_middleware(
     CORSMiddleware,
     allow_origins=["http://localhost:5173"], # Your Vite frontend port
+    # "https://your-new-netlify-url.netlify.app", # You can keep or remove this
+    "https://eduke.app",                        # <-- ADD THIS
+    "https://www.eduke.app"                     # <-- AND THIS
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],

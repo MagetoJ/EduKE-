@@ -1,32 +1,29 @@
 import os
 from sqlalchemy.ext.asyncio import create_async_engine, AsyncSession, async_sessionmaker
 from sqlalchemy.orm import declarative_base
-from sqlalchemy import text
 from tenacity import retry, stop_after_attempt, wait_fixed
 import logging
 from dotenv import load_dotenv  # Import dotenv to read your .env file
 
 # Load environment variables
 load_dotenv()
-
 logger = logging.getLogger(__name__)
 
-# Fetch the DATABASE_URL from your .env file. Fall back to SQLite only if not provided.
-DATABASE_URL = os.getenv("DATABASE_URL", "sqlite+aiosqlite:///./eduke.db")
-if DATABASE_URL:
+DATABASE_URL = os.getenv("DATABASE_URL")
+
+# --- DEBUGGING BLOCK ---
+if not DATABASE_URL:
+    print("🚨 CRITICAL ERROR: DATABASE_URL environment variable is MISSING!")
+    DATABASE_URL = "sqlite+aiosqlite:///./eduke.db" 
+else:
+    print("✅ SUCCESS: DATABASE_URL was found!")
     if DATABASE_URL.startswith("postgres://"):
         DATABASE_URL = DATABASE_URL.replace("postgres://", "postgresql+asyncpg://", 1)
     elif DATABASE_URL.startswith("postgresql://"):
         DATABASE_URL = DATABASE_URL.replace("postgresql://", "postgresql+asyncpg://", 1)
-# ----------------------
-# If you are using SQLite locally, you need connect_args. For Postgres, remove it.
-if "sqlite" in DATABASE_URL:
-    engine = create_async_engine(
-        DATABASE_URL, 
-        connect_args={"check_same_thread": False}
-    )
-else:
-    engine = create_async_engine(DATABASE_URL)
+# -----------------------
+
+engine = create_async_engine(DATABASE_URL)
 
 async_session_maker = async_sessionmaker(engine, class_=AsyncSession, expire_on_commit=False)
 Base = declarative_base()
