@@ -9,12 +9,13 @@ from dotenv import load_dotenv  # Import dotenv to read your .env file
 load_dotenv()
 logger = logging.getLogger(__name__)
 
-DATABASE_URL = os.getenv("DATABASE_URL")
+# Grab the URL and use .strip() to remove any accidental invisible spaces
+DATABASE_URL = os.getenv("DATABASE_URL", "").strip()
 
 # --- DEBUGGING BLOCK ---
 if not DATABASE_URL:
     print("🚨 CRITICAL ERROR: DATABASE_URL environment variable is MISSING!")
-    DATABASE_URL = "sqlite+aiosqlite:///./eduke.db" 
+    DATABASE_URL = "sqlite+aiosqlite:///./test.db" 
 else:
     print("✅ SUCCESS: DATABASE_URL was found!")
     if DATABASE_URL.startswith("postgres://"):
@@ -23,7 +24,13 @@ else:
         DATABASE_URL = DATABASE_URL.replace("postgresql://", "postgresql+asyncpg://", 1)
 # -----------------------
 
-engine = create_async_engine(DATABASE_URL)
+# --- THE FIX ---
+# Only use SQLite-specific arguments if the URL is actually SQLite
+if DATABASE_URL.startswith("sqlite"):
+    engine = create_async_engine(DATABASE_URL, connect_args={"check_same_thread": False})
+else:
+    engine = create_async_engine(DATABASE_URL) # Postgres runs perfectly with just the URL
+# ---------------
 
 async_session_maker = async_sessionmaker(engine, class_=AsyncSession, expire_on_commit=False)
 Base = declarative_base()
