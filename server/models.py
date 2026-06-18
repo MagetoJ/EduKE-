@@ -425,3 +425,160 @@ class BoardingEnrollment(Base):
     school = relationship("School")
     student = relationship("Student")
     house = relationship("BoardingHouse", back_populates="enrollments")
+
+
+    # ==================== LIBRARY MANAGEMENT ====================
+
+class LibraryBook(Base):
+    __tablename__ = "library_books"
+
+    id = Column(Integer, primary_key=True, index=True)
+    school_id = Column(Integer, ForeignKey("schools.id", ondelete="CASCADE"), nullable=False)
+    
+    title = Column(String(255), nullable=False)
+    author = Column(String(255))
+    isbn = Column(String(50))
+    publisher = Column(String(100))
+    publication_year = Column(Integer)
+    
+    category = Column(String(100))
+    subject_id = Column(Integer, ForeignKey("subjects.id", ondelete="SET NULL"))
+    
+    total_copies = Column(Integer, default=1)
+    available_copies = Column(Integer, default=1)
+    location_rack = Column(String(50))
+    
+    created_at = Column(DateTime, default=datetime.utcnow)
+    updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+
+    # Relationships
+    school = relationship("School")
+    issues = relationship("LibraryIssue", back_populates="book")
+
+class LibraryIssue(Base):
+    __tablename__ = "library_issues"
+
+    id = Column(Integer, primary_key=True, index=True)
+    school_id = Column(Integer, ForeignKey("schools.id", ondelete="CASCADE"), nullable=False)
+    book_id = Column(Integer, ForeignKey("library_books.id", ondelete="CASCADE"), nullable=False)
+    
+    student_id = Column(Integer, ForeignKey("students.id", ondelete="CASCADE"))
+    staff_id = Column(Integer, ForeignKey("users.id", ondelete="CASCADE"))
+    
+    issue_date = Column(Date, default=datetime.utcnow().date)
+    due_date = Column(Date, nullable=False)
+    return_date = Column(Date)
+    
+    status = Column(String(20), default="issued") # issued, returned, overdue, lost
+    
+    fine_amount = Column(Float, default=0.0)
+    fine_paid = Column(Boolean, default=False)
+    
+    issued_by = Column(Integer, ForeignKey("users.id", ondelete="SET NULL"))
+    
+    created_at = Column(DateTime, default=datetime.utcnow)
+
+    # Relationships
+    book = relationship("LibraryBook", back_populates="issues")
+    student = relationship("Student")
+    staff = relationship("User", foreign_keys=[staff_id])
+    issuer = relationship("User", foreign_keys=[issued_by])
+
+# ==================== CORE ACADEMIC & E-LEARNING MODELS ====================
+
+class AcademicYear(Base):
+    __tablename__ = "academic_years"
+    
+    id = Column(Integer, primary_key=True, index=True)
+    school_id = Column(Integer, ForeignKey("schools.id", ondelete="CASCADE"), nullable=False)
+    name = Column(String(100))
+    start_date = Column(Date, nullable=False)
+    end_date = Column(Date)
+    status = Column(String(20), default="upcoming")
+
+class Term(Base):
+    __tablename__ = "terms"
+    
+    id = Column(Integer, primary_key=True, index=True)
+    school_id = Column(Integer, ForeignKey("schools.id", ondelete="CASCADE"), nullable=False)
+    academic_year_id = Column(Integer, ForeignKey("academic_years.id", ondelete="CASCADE"), nullable=False)
+    name = Column(String(50))
+    term_number = Column(Integer)
+    start_date = Column(Date, nullable=False)
+    end_date = Column(Date, nullable=False)
+    status = Column(String(20), default="upcoming")
+
+class Course(Base):
+    __tablename__ = "courses"
+    
+    id = Column(Integer, primary_key=True, index=True)
+    school_id = Column(Integer, ForeignKey("schools.id", ondelete="CASCADE"), nullable=False)
+    teacher_id = Column(Integer, ForeignKey("users.id", ondelete="SET NULL"))
+    academic_year_id = Column(Integer, ForeignKey("academic_years.id", ondelete="SET NULL"))
+    
+    name = Column(String(255), nullable=False)
+    code = Column(String(50))
+    description = Column(Text)
+    grade = Column(String(50))
+    
+    is_active = Column(Boolean, default=True)
+
+class Assignment(Base):
+    __tablename__ = "assignments"
+
+    id = Column(Integer, primary_key=True, index=True)
+    school_id = Column(Integer, ForeignKey("schools.id", ondelete="CASCADE"), nullable=False)
+    course_id = Column(Integer, ForeignKey("courses.id", ondelete="CASCADE"), nullable=False)
+    teacher_id = Column(Integer, ForeignKey("users.id", ondelete="CASCADE"), nullable=False)
+    academic_year_id = Column(Integer, ForeignKey("academic_years.id", ondelete="SET NULL"))
+    term_id = Column(Integer, ForeignKey("terms.id", ondelete="SET NULL"))
+    
+    title = Column(String(255), nullable=False)
+    description = Column(Text)
+    instructions = Column(Text)
+    
+    assignment_type = Column(String(20), default="homework")
+    total_marks = Column(Integer, default=100)
+    weightage = Column(Float)
+    
+    assigned_date = Column(DateTime, default=datetime.utcnow)
+    due_date = Column(DateTime, nullable=False)
+    late_submission_allowed = Column(Boolean, default=True)
+    late_penalty_percent = Column(Float, default=10.00)
+    
+    attachment_url = Column(Text)
+    status = Column(String(20), default="published")
+    
+    created_at = Column(DateTime, default=datetime.utcnow)
+    updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+
+    school = relationship("School")
+    teacher = relationship("User")
+    submissions = relationship("AssignmentSubmission", back_populates="assignment", cascade="all, delete-orphan")
+
+class AssignmentSubmission(Base):
+    __tablename__ = "assignment_submissions"
+
+    id = Column(Integer, primary_key=True, index=True)
+    assignment_id = Column(Integer, ForeignKey("assignments.id", ondelete="CASCADE"), nullable=False)
+    student_id = Column(Integer, ForeignKey("students.id", ondelete="CASCADE"), nullable=False)
+    
+    submission_text = Column(Text)
+    attachment_url = Column(Text)
+    submitted_at = Column(DateTime)
+    
+    grade = Column(Float)
+    max_grade = Column(Integer)
+    graded_by = Column(Integer, ForeignKey("users.id", ondelete="SET NULL"))
+    graded_at = Column(DateTime)
+    feedback = Column(Text)
+    
+    status = Column(String(20), default="pending")
+    is_late = Column(Boolean, default=False)
+    
+    created_at = Column(DateTime, default=datetime.utcnow)
+    updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+
+    assignment = relationship("Assignment", back_populates="submissions")
+    student = relationship("Student")
+    grader = relationship("User", foreign_keys=[graded_by])

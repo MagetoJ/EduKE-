@@ -142,7 +142,8 @@ export function SubscriptionStatusChart() {
                       backgroundColor: "hsl(var(--background))",
                       borderColor: "hsl(var(--border))",
                       borderRadius: "var(--radius)",
-                    }}                    formatter={(value: any, name: any) => [
+                    }}
+                    formatter={(value: any, name: any) => [
                       name === "revenue" ? `$${value}` : value,
                       name === "revenue" ? "Revenue" : "Subscribers",
                     ]}
