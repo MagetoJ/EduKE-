@@ -1,13 +1,17 @@
 from stubs import router as stubs_router
 from fastapi import FastAPI, Depends, HTTPException, status, Request
+from fastapi.exceptions import RequestValidationError  # Added for input validation handling
 from assignments import router as assignments_router
 from library import router as library_router
 from fastapi.responses import JSONResponse
 from fastapi.middleware.cors import CORSMiddleware
 from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy.exc import SQLAlchemyError  # Added for database exception handling
 from sqlalchemy import select, insert
 from datetime import timedelta
+from typing import Optional
 import logging
+import traceback
 
 from database import get_db, init_db
 from models import User, School, school_users, UserRole
@@ -38,10 +42,12 @@ from notifications import router as notifications_router
 from transport_boarding import router as transport_router
 
 # Setup logging
+logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
 app = FastAPI(title="EduKE API", version="1.0.0", redirect_slashes=False)
 
+# Include Routers
 app.include_router(students_router, prefix="/api", dependencies=[Depends(get_current_user)])
 app.include_router(payments_router, prefix="/api", dependencies=[Depends(get_current_user)])
 app.include_router(assets_router, prefix="/api", dependencies=[Depends(get_current_user)])
@@ -52,24 +58,13 @@ app.include_router(attendance_router, prefix="/api", dependencies=[Depends(get_c
 app.include_router(platform_router, prefix="/api", dependencies=[Depends(get_current_user)])
 app.include_router(dashboard_router, prefix="/api", dependencies=[Depends(get_current_user)])
 app.include_router(stubs_router, dependencies=[Depends(get_current_user)])
-
-# Also ensure your other newly built routers are included here if they aren't already:
 app.include_router(assignments_router, dependencies=[Depends(get_current_user)])
 app.include_router(transport_router, dependencies=[Depends(get_current_user)])
 app.include_router(library_router, dependencies=[Depends(get_current_user)])
-app.include_router(
-    leave_router, 
-    prefix="/api", 
-    dependencies=[Depends(get_current_user)]
-)
+app.include_router(leave_router, prefix="/api", dependencies=[Depends(get_current_user)])
+app.include_router(notifications_router, prefix="/api", dependencies=[Depends(get_current_user)])
 
-app.include_router(
-    notifications_router, 
-    prefix="/api", 
-    dependencies=[Depends(get_current_user)]
-)
-
-# CORS configuration - Borrowed from SmartBiz main.py
+# CORS configuration
 app.add_middleware(
     CORSMiddleware,
     allow_origins=[
@@ -83,33 +78,77 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-# ==================== EXCEPTION HANDLERS (SmartBiz Pattern) ====================
+# ==================== EXCEPTION HANDLERS ====================
 
 @app.exception_handler(HTTPException)
 async def custom_http_exception_handler(request: Request, exc: HTTPException):
+    """Handles explicit client/server actions raised within routes"""
+    logger.warning(f"HTTP {exc.status_code} on {request.method} {request.url.path}: {exc.detail}")
     return JSONResponse(
         status_code=exc.status_code,
-        content={"detail": exc.detail},
+        content={"success": False, "detail": exc.detail},
+    )
+
+@app.exception_handler(RequestValidationError)
+async def validation_exception_handler(request: Request, exc: RequestValidationError):
+    """Catches and sanitizes Pydantic input/validation errors (HTTP 422)"""
+    errors = exc.errors()
+    error_messages = []
+    for err in errors:
+        loc = " -> ".join(str(x) for x in err.get("loc", []))
+        msg = err.get("msg", "Invalid value")
+        error_messages.append(f"Field '{loc}': {msg}")
+    
+    friendly_detail = "; ".join(error_messages)
+    logger.error(f"Validation failed on {request.method} {request.url.path}: {friendly_detail}")
+    
+    return JSONResponse(
+        status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+        content={
+            "success": False, 
+            "detail": "Input validation failed", 
+            "errors": friendly_detail
+        },
+    )
+
+@app.exception_handler(SQLAlchemyError)
+async def database_exception_handler(request: Request, exc: SQLAlchemyError):
+    """Catches database level problems gracefully without revealing connection strings or schemas"""
+    logger.critical(f"Database error on {request.method} {request.url.path}: {str(exc)}\n{traceback.format_exc()}")
+    return JSONResponse(
+        status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+        content={
+            "success": False, 
+            "detail": "Database service is temporarily unavailable or query failed."
+        },
     )
 
 @app.exception_handler(Exception)
 async def generic_exception_handler(request: Request, exc: Exception):
-    logger.error(f"Unhandled error: {str(exc)}")
+    """Catch-all handler for unexpected system failures (HTTP 500)"""
+    logger.critical(f"Unhandled system error on {request.method} {request.url.path}: {str(exc)}\n{traceback.format_exc()}")
     return JSONResponse(
-        status_code=500,
-        content={"detail": "Internal server error occurred"},
+        status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+        content={"success": False, "detail": "An internal server error occurred"},
     )
+
+# ==================== STARTUP EVENTS ====================
 
 @app.on_event("startup")
 async def startup_event():
     """Initialize database on startup - SmartBiz pattern"""
-    await init_db()
-    logger.info("EduKE Backend Started Successfully")
+    try:
+        await init_db()
+        logger.info("EduKE Backend Started and Database Initialized Successfully")
+    except Exception as e:
+        logger.critical(f"Failed to initialize database during startup: {str(e)}")
+        raise e
 
-# ============= SCHEMAS (Aligned with Frontend) =============
+# ============= SCHEMAS =============
 class SchoolRegister(BaseModel):
     schoolName: str
-    curriculum: str
+    is_special_needs: bool
+    disability_category: Optional[str] = "none"
     adminName: str
     email: str
     password: str
@@ -125,40 +164,31 @@ class LoginRequest(BaseModel):
 @app.post("/api/register-school")
 @app.post("/api/register-school/")
 async def register_school(data: SchoolRegister, db: AsyncSession = Depends(get_db)):
-    """Registers a new School and its first Admin user (Aligned with Frontend)"""
-    
-    # 1. Check if user or school slug already exists
+    """Registers a new School and its first Admin user with special needs parameters"""
     slug = data.schoolName.lower().replace(" ", "-")
     existing_school = await db.execute(select(School).where(School.slug == slug))
     if existing_school.scalar_one_or_none():
         raise HTTPException(status_code=400, detail="School name already registered")
 
-    # Check if email exists
     existing_user = await db.execute(select(User).where(User.email == data.email))
     if existing_user.scalar_one_or_none():
         raise HTTPException(status_code=400, detail="Email already registered")
 
-    # 2. Create the School
     new_school = School(
-        name=data.schoolName,
-        slug=slug,
-        email=data.email
+        name=data.schoolName, 
+        slug=slug, 
+        email=data.email,
+        is_special_needs=data.is_special_needs,
+        disability_category=data.disability_category if data.is_special_needs else "none"
     )
     db.add(new_school)
-    await db.flush() # Get school ID
+    await db.flush()
 
-    # 3. Create the Admin User
     hashed_password = get_password_hash(data.password)
-    new_user = User(
-        username=data.email, # Using email as username for simplicity
-        email=data.email,
-        full_name=data.adminName,
-        hashed_password=hashed_password
-    )
+    new_user = User(username=data.email, email=data.email, full_name=data.adminName, hashed_password=hashed_password)
     db.add(new_user)
-    await db.flush() # Get user ID
+    await db.flush()
 
-    # 4. Link User to School as ADMIN
     await db.execute(
         insert(school_users).values(
             school_id=new_school.id,
@@ -169,23 +199,20 @@ async def register_school(data: SchoolRegister, db: AsyncSession = Depends(get_d
     )
     
     await db.commit()
-    return {"message": f"School {data.schoolName} registered successfully", "school_id": new_school.id}
+    return {"success": True, "message": f"School {data.schoolName} registered successfully", "school_id": new_school.id}
 
 @app.post("/api/auth/login")
 @app.post("/api/auth/login/")
 @app.post("/api/login")
 @app.post("/api/login/")
 async def login(data: LoginRequest, db: AsyncSession = Depends(get_db)):
-    """Login and return a token scoped to the user's school (Aligned with Frontend)"""
-    
-    # 1. Find user by email
+    """Login and return a token scoped to the user's school and special needs track parameters"""
     result = await db.execute(select(User).where(User.email == data.email))
     user = result.scalar_one_or_none()
 
     if not user or not verify_password(data.password, user.hashed_password):
         raise HTTPException(status_code=401, detail="Incorrect email or password")
 
-    # 2. Get user's school assignment (SmartBiz Multi-tenancy)
     membership_query = select(school_users.c.school_id, school_users.c.role).where(
         school_users.c.user_id == user.id,
         school_users.c.is_active == True
@@ -199,20 +226,28 @@ async def login(data: LoginRequest, db: AsyncSession = Depends(get_db)):
     school_id = membership[0] if membership else None
     role = membership[1] if membership else "super_admin"
     school_name = None
+    school_is_special_needs = False
+    school_disability_category = "none"
 
     if school_id:
-        # Fetch school name for the response
-        school_result = await db.execute(select(School.name).where(School.id == school_id))
-        school_name = school_result.scalar()
+        school_result = await db.execute(select(School).where(School.id == school_id))
+        school = school_result.scalar_one_or_none()
+        if school:
+            school_name = school.name
+            school_is_special_needs = getattr(school, 'is_special_needs', False)
+            school_disability_category = getattr(school, 'disability_category', 'none')
 
-    # 3. Create Scoped Access Token
     access_token = create_access_token(
-        data={"sub": user.username, "is_super_admin": user.is_super_admin},
+        data={
+            "sub": user.username, 
+            "is_super_admin": user.is_super_admin,
+            "school_is_special_needs": school_is_special_needs,
+            "school_disability_category": school_disability_category
+        },
         school_id=school_id,
         expires_delta=timedelta(minutes=ACCESS_TOKEN_EXPIRE_MINUTES)
     )
 
-    # 4. Return response in format expected by Frontend AuthContext
     return {
         "success": True,
         "data": {
@@ -225,6 +260,8 @@ async def login(data: LoginRequest, db: AsyncSession = Depends(get_db)):
                 "is_super_admin": user.is_super_admin,
                 "school_id": str(school_id) if school_id else None,
                 "school_name": school_name,
+                "school_is_special_needs": school_is_special_needs,
+                "school_disability_category": school_disability_category,
                 "must_change_password": False
             }
         }
@@ -238,22 +275,26 @@ class RefreshRequest(BaseModel):
 @app.post("/api/refresh-token")
 async def refresh_token(data: RefreshRequest, request: Request):
     """Stub to prevent 404/401 in frontend background refresh"""
-    # The frontend refreshSession() currently doesn't send the Bearer token in headers.
-    # We look for the token in headers if provided to identify the user.
     auth_header = request.headers.get("Authorization")
     token = auth_header.split(" ")[1] if auth_header and auth_header.startswith("Bearer ") else None
 
     if token:
         try:
-            # Decode without expiration check to identify user for refresh
             payload = jwt.decode(token, SECRET_KEY, algorithms=[ALGORITHM], options={"verify_exp": False})
             username = payload.get("sub")
             school_id = payload.get("school_id")
             is_super_admin = payload.get("is_super_admin", False)
+            school_is_special_needs = payload.get("school_is_special_needs", False)
+            school_disability_category = payload.get("school_disability_category", "none")
             
             if username:
                 new_token = create_access_token(
-                    data={"sub": username, "is_super_admin": is_super_admin},
+                    data={
+                        "sub": username, 
+                        "is_super_admin": is_super_admin,
+                        "school_is_special_needs": school_is_special_needs,
+                        "school_disability_category": school_disability_category
+                    },
                     school_id=school_id
                 )
                 return {
@@ -288,12 +329,14 @@ async def list_schools_compatibility(
         "students": 0,
         "staff": 0,
         "revenue": "0",
-        "status": s.status
+        "status": s.status,
+        "is_special_needs": getattr(s, 'is_special_needs', False),
+        "disability_category": getattr(s, 'disability_category', 'none')
     } for s in schools]
 
 @app.get("/")
 async def root():
-    return {"message": "Welcome to EduKE API. Borrowing logic from SmartBiz."}
+    return {"message": "Welcome to EduKE."}
 
 if __name__ == "__main__":
     import uvicorn

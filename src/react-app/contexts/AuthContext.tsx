@@ -9,9 +9,11 @@ export interface User {
   role: UserRole;
   schoolId?: string;
   schoolName?: string;
-  schoolCurriculum?: string;
   avatar?: string;
   must_change_password?: boolean;
+  // System configurations derived from Option Selected in School Registration
+  isSpecialNeeds?: boolean;
+  disabilityCategory?: 'hearing_impaired' | 'visual_impaired' | 'physical_mobility';
 }
 
 interface AuthContextType {
@@ -97,7 +99,11 @@ const AuthProvider = ({ children }: { children: React.ReactNode }) => {
   const [token, setToken] = useState<string | null>(initialToken.value);
   const [refreshToken, setRefreshToken] = useState<string | null>(initialRefreshToken.value);
   const [isImpersonating, setIsImpersonating] = useState<boolean>(!!initialOriginalToken.value);
-  const [isLoading, setIsLoading] = useState(true);
+  
+  // Separating app state checking from run-time API processing states
+  const [isInitializing, setIsInitializing] = useState(true);
+  const [isLoading, setIsLoading] = useState(false);
+  
   const [storagePreference, setStoragePreference] = useState<StorageType>(initialStoragePreference);
 
   const storagePreferenceRef = useRef<StorageType>(initialStoragePreference);
@@ -112,7 +118,7 @@ const AuthProvider = ({ children }: { children: React.ReactNode }) => {
   }, [user]);
 
   useEffect(() => {
-    setIsLoading(false);
+    setIsInitializing(false);
   }, []);
 
   const writeAuthToStorage = useCallback(
@@ -165,16 +171,13 @@ const AuthProvider = ({ children }: { children: React.ReactNode }) => {
   const impersonate = useCallback((newToken: string, newUser: User) => {
     const storage = storagePreferenceRef.current === 'local' ? window.localStorage : window.sessionStorage;
     
-    // Save current state as original
     storage.setItem('originalToken', token || '');
     storage.setItem('originalUser', JSON.stringify(user));
     
-    // Set new state
     setToken(newToken);
     setUserState(newUser);
     setIsImpersonating(true);
     
-    // Persist to storage
     storage.setItem('token', newToken);
     storage.setItem('user', JSON.stringify(newUser));
   }, [token, user]);
@@ -246,8 +249,9 @@ const AuthProvider = ({ children }: { children: React.ReactNode }) => {
         });
 
         const data = await response.json();
+        
         if (!response.ok || !data.success) {
-          throw new Error(data.error || 'Login failed');
+          throw new Error(data.error || data.message || 'Incorrect email or password.');
         }
 
         const storageType: StorageType = remember ? 'local' : 'session';
@@ -258,9 +262,11 @@ const AuthProvider = ({ children }: { children: React.ReactNode }) => {
           role: data.data.user.role,
           schoolId: data.data.user.school_id ? String(data.data.user.school_id) : undefined,
           schoolName: data.data.user.school_name,
-          schoolCurriculum: data.data.user.curriculum,
           avatar: data.data.user.avatar,
-          must_change_password: data.data.user.must_change_password
+          must_change_password: data.data.user.must_change_password,
+          // Extract specialized configurations for dashboard tailoring
+          isSpecialNeeds: !!data.data.user.school_is_special_needs,
+          disabilityCategory: data.data.user.school_disability_category || undefined
         };
 
         setStoragePreference(storageType);
@@ -307,7 +313,11 @@ const AuthProvider = ({ children }: { children: React.ReactNode }) => {
     exitImpersonation
   };
 
-  return <AuthContext.Provider value={value}>{!isLoading && children}</AuthContext.Provider>;
+  return (
+    <AuthContext.Provider value={value}>
+      {!isInitializing && children}
+    </AuthContext.Provider>
+  );
 };
 
 export function useApi() {
@@ -333,12 +343,22 @@ export function useApi() {
         const newToken = await refreshSession();
         if (!newToken) {
           logout();
-          throw new Error('Authentication failed');
+          throw new Error('Your session has expired. Please log in again.');
         }
         response = await executeRequest(newToken);
         if (response.status === 401) {
           logout();
-          throw new Error('Authentication failed');
+          throw new Error('Your session has expired. Please log in again.');
+        }
+      }
+
+      if (!response.ok) {
+        try {
+          const errorData = await response.json();
+          throw new Error(errorData.error || errorData.detail || `Request failed with status ${response.status}`);
+        } catch (err) {
+          if (err instanceof Error) throw err;
+          throw new Error(`Server execution encountered an update status: ${response.status}`);
         }
       }
 

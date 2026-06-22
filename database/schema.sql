@@ -1559,3 +1559,38 @@ INSERT INTO subscription_plans (name, slug, description, price_monthly, price_an
 ('Professional Plan', 'pro', 'Advanced features for growing schools', 99.99, 999.99, 500, 50, 0, TRUE, TRUE, TRUE, TRUE, TRUE, TRUE, FALSE, FALSE, TRUE),
 ('Enterprise Plan', 'enterprise', 'Unlimited features for large institutions', 199.99, 1999.99, NULL, NULL, 0, TRUE, TRUE, TRUE, TRUE, TRUE, TRUE, TRUE, FALSE, TRUE)
 ON CONFLICT (slug) DO NOTHING;
+-- Track specific special education accommodations for schools
+ALTER TABLE schools ADD COLUMN school_type TEXT DEFAULT 'regular'; -- 'regular' or 'special_needs'
+ALTER TABLE schools ADD COLUMN primary_disability_category TEXT;    -- e.g., 'hearing_impaired'
+
+-- Deaf education profile for students
+CREATE TABLE student_deaf_profiles (
+    id TEXT PRIMARY KEY,
+    student_id TEXT NOT NULL REFERENCES students(id) ON DELETE CASCADE,
+    ksl_proficiency_level TEXT NOT NULL, -- 'beginner', 'intermediate', 'advanced', 'native'
+    hearing_loss_degree_left TEXT,       -- e.g., 'mild', 'moderate', 'severe', 'profound'
+    hearing_loss_degree_right TEXT,
+    assistive_device_used TEXT,          -- e.g., 'cochlear_implant', 'hearing_aid', 'none'
+    preferred_communication_mode TEXT,   -- e.g., 'KSL', 'Total Communication', 'Oral'
+    updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+);
+
+-- Individualized Education Program (IEP) records
+CREATE TABLE student_ieps (
+    id TEXT PRIMARY KEY,
+    student_id TEXT NOT NULL REFERENCES students(id) ON DELETE CASCADE,
+    academic_year TEXT NOT NULL,
+    term TEXT NOT NULL,
+    current_performance_summary TEXT,
+    annual_goals TEXT,                  -- JSON array of specific target items
+    accommodations_provided TEXT,       -- JSON array of support tools
+    iep_coordinator_id TEXT NOT NULL REFERENCES teachers(id),
+    status TEXT DEFAULT 'active',        -- 'active', 'reviewed', 'archived'
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+);
+-- Alter existing schema references
+ALTER TABLE schools DROP COLUMN curriculum; -- Drop the old user manual curriculum selection
+
+ALTER TABLE schools ADD COLUMN is_special_needs BOOLEAN DEFAULT FALSE;
+ALTER TABLE schools ADD COLUMN disability_category TEXT; -- 'hearing_impaired', 'visual_impaired', 'physical_mobility', 'none'
