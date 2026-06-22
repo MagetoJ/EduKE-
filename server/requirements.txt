@@ -13,3 +13,4 @@ python-dotenv==1.0.1
 email-validator
 psycopg2-binary
 greenlet
+alembic>=1.13.0
