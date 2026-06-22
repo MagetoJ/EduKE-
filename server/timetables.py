@@ -1,80 +1,145 @@
 from fastapi import APIRouter, Depends, HTTPException, status
 from sqlalchemy.ext.asyncio import AsyncSession
-from sqlalchemy import select
+from sqlalchemy import select, delete
 from typing import List, Optional
 from pydantic import BaseModel
 
 from database import get_db
-from models import TimetableSlot, School, Subject, User, school_users, UserRole
+from models import TimetableSlot, School, Subject, User, UserRole
 from auth import get_current_school
 
-router = APIRouter(prefix="/timetables", tags=["Timetables"])
+router = APIRouter(prefix="/timetables", tags=["Timetable Management"])
 
 # --- Schemas ---
 class TimetableSlotCreate(BaseModel):
     subject_id: int
     teacher_id: Optional[int] = None
-    day_of_week: str
-    start_time: str
-    end_time: str
+    day_of_week: str      # Monday, Tuesday, etc.
+    start_time: str       # HH:MM format
+    end_time: str         # HH:MM format
     room: Optional[str] = None
-    grade_level: str
+    grade_level: str      # e.g., "Grade 1", "Grade 2"
 
 class TimetableSlotResponse(BaseModel):
     id: int
+    school_id: int
     subject_id: int
+    subject_name: str
     teacher_id: Optional[int]
+    teacher_name: Optional[str]
     day_of_week: str
     start_time: str
     end_time: str
     room: Optional[str]
     grade_level: str
+
     class Config:
         from_attributes = True
 
 # --- Routes ---
 
-@router.post("", response_model=TimetableSlotResponse)
-@router.post("/", response_model=TimetableSlotResponse)
+@router.get("", response_model=dict)
+@router.get("/", response_model=dict)
+async def get_timetable_slots(
+    grade_level: Optional[str] = None,
+    db: AsyncSession = Depends(get_db),
+    current_school: School = Depends(get_current_school)
+):
+    """Retrieve all timetable slots for the school node, optionally filtered by grade level"""
+    query = select(
+        TimetableSlot, 
+        Subject.name.label("subject_name"), 
+        User.full_name.label("teacher_name")
+    ).join(
+        Subject, TimetableSlot.subject_id == Subject.id
+    ).join(
+        User, TimetableSlot.teacher_id == User.id, isouter=True
+    ).where(
+        TimetableSlot.school_id == current_school.id
+    )
+
+    if grade_level:
+        query = query.where(TimetableSlot.grade_level == grade_level)
+
+    result = await db.execute(query)
+    rows = result.all()
+
+    slots_data = []
+    for slot, sub_name, teacher_name in rows:
+        slots_data.append({
+            "id": slot.id,
+            "school_id": slot.school_id,
+            "subject_id": slot.subject_id,
+            "subject_name": sub_name,
+            "teacher_id": slot.teacher_id,
+            "teacher_name": teacher_name or "Unassigned",
+            "day_of_week": slot.day_of_week,
+            "start_time": slot.start_time,
+            "end_time": slot.end_time,
+            "room": slot.room or "N/A",
+            "grade_level": slot.grade_level
+        })
+
+    return {"success": True, "data": slots_data}
+
+@router.post("", response_model=dict)
+@router.post("/", response_model=dict)
 async def create_timetable_slot(
     data: TimetableSlotCreate,
     db: AsyncSession = Depends(get_db),
     current_school: School = Depends(get_current_school)
 ):
-    """Add a lesson to the weekly timetable"""
-    # 1. Verify subject belongs to school
-    subj_result = await db.execute(select(Subject).where(Subject.id == data.subject_id, Subject.school_id == current_school.id))
-    if not subj_result.scalar_one_or_none():
-        raise HTTPException(status_code=404, detail="Subject not found")
-
-    # 2. Verify teacher belongs to school and has teacher role
-    if data.teacher_id:
-        teacher_query = select(User).join(school_users).where(
-            User.id == data.teacher_id,
-            school_users.c.school_id == current_school.id,
-            school_users.c.role == UserRole.TEACHER
+    """Create a new slot block checked for overlapping scheduling conflicts"""
+    
+    # 1. Schedule Overlap Detection Safety Check
+    conflict_query = select(TimetableSlot).where(
+        TimetableSlot.school_id == current_school.id,
+        TimetableSlot.day_of_week == data.day_of_week,
+        TimetableSlot.grade_level == data.grade_level,
+        TimetableSlot.start_time < data.end_time,
+        TimetableSlot.end_time > data.start_time
+    )
+    conflict_result = await db.execute(conflict_query)
+    if conflict_result.scalar_one_or_none():
+        raise HTTPException(
+            status_code=400, 
+            detail="Schedule conflict detected! Another subject is already scheduled at this time for this grade."
         )
-        teacher_result = await db.execute(teacher_query)
-        if not teacher_result.scalar_one_or_none():
-            raise HTTPException(status_code=400, detail="Invalid teacher for this school")
 
-    new_slot = TimetableSlot(**data.dict(), school_id=current_school.id)
+    # 2. Persist to DB
+    new_slot = TimetableSlot(
+        school_id=current_school.id,
+        subject_id=data.subject_id,
+        teacher_id=data.teacher_id,
+        day_of_week=data.day_of_week,
+        start_time=data.start_time,
+        end_time=data.end_time,
+        room=data.room,
+        grade_level=data.grade_level
+    )
+    
     db.add(new_slot)
     await db.commit()
     await db.refresh(new_slot)
-    return new_slot
+    
+    return {"success": True, "message": "Timetable slot allocated successfully"}
 
-@router.get("/{grade_level}", response_model=List[TimetableSlotResponse])
-async def get_grade_timetable(
-    grade_level: str,
+@router.delete("/{slot_id}")
+@router.delete("/{slot_id}/")
+async def delete_timetable_slot(
+    slot_id: int,
     db: AsyncSession = Depends(get_db),
     current_school: School = Depends(get_current_school)
 ):
-    """View weekly timetable for a specific class/grade"""
-    result = await db.execute(
-        select(TimetableSlot).where(
-            TimetableSlot.school_id == current_school.id,
-            TimetableSlot.grade_level == grade_level
-        ).order_by(TimetableSlot.day_of_week, TimetableSlot.start_time)
+    """Delete a configured schedule slot block block"""
+    query = delete(TimetableSlot).where(
+        TimetableSlot.id == slot_id,
+        TimetableSlot.school_id == current_school.id
     )
-    return result.scalars().all()
+    result = await db.execute(query)
+    await db.commit()
+    
+    if result.rowcount == 0:
+        raise HTTPException(status_code=404, detail="Timetable slot not found")
+        
+    return {"success": True, "message": "Slot successfully removed from timetable"}

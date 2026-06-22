@@ -122,20 +122,27 @@ export default function Students() {
     setIsEnrollDialogOpen(open)
   }
 
-  const handleSubmit = async (e: FormEvent) => {
+const handleSubmit = async (e: FormEvent) => {
     e.preventDefault()
     setIsSubmitting(true)
+    setFormError(null)
     try {
       const response = await api('/api/students', {
         method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(enrollForm),
       })
       const data = await response.json()
-      if (!response.ok) throw new Error(data.error)
+      
+      if (!response.ok) {
+        // Fallback context in case error strings live inside data.detail or data.errors
+        throw new Error(data.detail || data.error || data.errors || 'Failed to enroll student');
+      }
+      
       setStudents(prev => [data.data, ...prev])
       handleEnrollDialogChange(false)
     } catch (err) {
-      setFormError(err instanceof Error ? err.message : 'Failed')
+      setFormError(err instanceof Error ? err.message : 'Registration failed')
     } finally {
       setIsSubmitting(false)
     }

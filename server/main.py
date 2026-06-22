@@ -149,6 +149,7 @@ class SchoolRegister(BaseModel):
     schoolName: str
     is_special_needs: bool
     disability_category: Optional[str] = "none"
+    curriculum: Optional[str] = "CBC"  # Added as an optional field to prevent validation failure from frontend requests
     adminName: str
     email: str
     password: str
@@ -174,13 +175,19 @@ async def register_school(data: SchoolRegister, db: AsyncSession = Depends(get_d
     if existing_user.scalar_one_or_none():
         raise HTTPException(status_code=400, detail="Email already registered")
 
-    new_school = School(
-        name=data.schoolName, 
-        slug=slug, 
-        email=data.email,
-        is_special_needs=data.is_special_needs,
-        disability_category=data.disability_category if data.is_special_needs else "none"
-    )
+    # Set properties conditionally, providing support for database layouts expecting curriculum tags
+    school_kwargs = {
+        "name": data.schoolName, 
+        "slug": slug, 
+        "email": data.email,
+        "is_special_needs": data.is_special_needs,
+        "disability_category": data.disability_category if data.is_special_needs else "none"
+    }
+    
+    if hasattr(School, 'curriculum'):
+        school_kwargs["curriculum"] = data.curriculum
+
+    new_school = School(**school_kwargs)
     db.add(new_school)
     await db.flush()
 
@@ -307,6 +314,53 @@ async def refresh_token(data: RefreshRequest, request: Request):
             logger.error(f"Refresh failed: {e}")
 
     raise HTTPException(status_code=401, detail="Session expired - please login again")
+
+# ==================== STAFF DIRECTORY ALIAS ROUTE ====================
+
+@app.get("/api/staff")
+@app.get("/api/staff/")
+async def list_school_staff(
+    db: AsyncSession = Depends(get_db),
+    current_school: School = Depends(get_current_school)
+):
+    """
+    Fetches all members belonging to the current school network tenant.
+    Returns a unified response envelope with dynamically joined multi-tenant fields.
+    """
+    query = select(
+        User.id,
+        User.full_name.label("name"),
+        User.email,
+        school_users.c.role,
+        school_users.c.is_active
+    ).join(
+        school_users, User.id == school_users.c.user_id
+    ).where(
+        school_users.c.school_id == current_school.id
+    )
+    
+    result = await db.execute(query)
+    rows = result.all()
+    
+    staff_list = []
+    for row in rows:
+        if row.role in [UserRole.STUDENT, UserRole.PARENT]:
+            continue
+            
+        staff_list.append({
+            "id": str(row.id),
+            "name": row.name,
+            "email": row.email,
+            "phone": "",
+            "role": str(row.role.value if hasattr(row.role, 'value') else row.role),
+            "department": "Administration" if row.role == UserRole.ADMIN else "Academics",
+            "status": "active" if row.is_active else "inactive",
+            "hire_date": None,
+            "class_assigned": None,
+            "subject": None
+        })
+        
+    return {"success": True, "data": staff_list}
 
 # ==================== BASIC ROUTES ====================
 

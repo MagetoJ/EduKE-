@@ -61,6 +61,10 @@ class School(Base):
     trial_ends_at = Column(DateTime, default=lambda: datetime.utcnow() + timedelta(days=14))
     subscription_expires_at = Column(DateTime, nullable=True)
     
+    # Special Needs Track Parameters
+    is_special_needs = Column(Boolean, default=False, nullable=False)
+    disability_category = Column(String(50), default="none", nullable=False)
+    
     created_at = Column(DateTime, default=datetime.utcnow)
 
     # Relationships
@@ -427,7 +431,7 @@ class BoardingEnrollment(Base):
     house = relationship("BoardingHouse", back_populates="enrollments")
 
 
-    # ==================== LIBRARY MANAGEMENT ====================
+# ==================== LIBRARY MANAGEMENT ====================
 
 class LibraryBook(Base):
     __tablename__ = "library_books"
