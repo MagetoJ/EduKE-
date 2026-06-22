@@ -1,5 +1,6 @@
+
 import React, { useState, useEffect } from 'react'
-import { Plus, Edit, Trash2, Loader2, AlertCircle, User, MoreHorizontal, MapPin, ChevronDown } from 'lucide-react'
+import { Plus, Edit, Trash2, Loader2, AlertCircle, User, MoreHorizontal, MapPin, ChevronDown, Accessibility } from 'lucide-react'
 import { Button } from '../components/ui/button'
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle, DialogTrigger } from '../components/ui/dialog'
 import { Label } from '../components/ui/label'
@@ -33,6 +34,9 @@ type TimetableEntry = {
   course_id: string;
   teacher_id: string;
   period_id: string;
+  // Special Needs Tracking Properties
+  is_accessible_track?: boolean;
+  accommodation_type?: string;
 };
 
 type Course = {
@@ -61,6 +65,9 @@ type FormData = {
   grade: string;
   class_section: string;
   classroom: string;
+  // Special Needs Form Mappings
+  is_accessible_track: boolean;
+  accommodation_type: string;
 };
 
 type PeriodFormData = {
@@ -77,7 +84,9 @@ const EMPTY_FORM: FormData = {
   day_of_week: 'monday',
   grade: '',
   class_section: '',
-  classroom: ''
+  classroom: '',
+  is_accessible_track: false,
+  accommodation_type: 'none'
 };
 
 const DAYS_OF_WEEK = ['monday', 'tuesday', 'wednesday', 'thursday', 'friday', 'saturday', 'sunday'];
@@ -107,7 +116,7 @@ const labelColorStyles = {
 }
 
 export default function Timetable() {
-  const { user } = useAuth()
+  const { user } = useAuth() as any
   const api = useApi()
 
   const [timetableData, setTimetableData] = useState<TimetableEntry[]>([])
@@ -207,14 +216,14 @@ export default function Timetable() {
           course_id: String(entry.course_id),
           teacher_id: String(entry.teacher_id),
           period_id: String(entry.period_id),
-          day_of_week: (entry.day_of_week || '').trim().toLowerCase()
+          day_of_week: (entry.day_of_week || '').trim().toLowerCase(),
+          is_accessible_track: !!entry.is_accessible_track,
+          accommodation_type: entry.accommodation_type || 'none'
         }))
 
-        console.log('Normalized Timetable Data:', normalizedTimetable)
         setTimetableData(normalizedTimetable)
         setCourses((courseData.data || []).map((c: Course) => ({ ...c, id: String(c.id) })))
         setTeachers((teacherData.data || []).map((t: Teacher) => ({ ...t, id: String(t.id) })))
-        console.log('Periods Data:', periodData.data)
         setPeriods((periodData.data || []).map((p: TimePeriod) => ({ ...p, id: String(p.id) })))
 
       } catch (err) {
@@ -226,7 +235,7 @@ export default function Timetable() {
     loadData()
   }, [api, user, selectedGrade, selectedSection])
 
-  const handleFormChange = (field: keyof FormData, value: string) => {
+  const handleFormChange = (field: keyof FormData, value: string | boolean) => {
     setFormData(prev => ({ ...prev, [field]: value }))
   }
 
@@ -289,6 +298,8 @@ export default function Timetable() {
         period_name: period?.name || 'Unknown',
         start_time: period?.start_time || '',
         end_time: period?.end_time || '',
+        is_accessible_track: !!data.data.is_accessible_track,
+        accommodation_type: data.data.accommodation_type || 'none'
       }
 
       setTimetableData(prev => [newEntry, ...prev])
@@ -359,6 +370,8 @@ export default function Timetable() {
       grade: entry.grade,
       class_section: entry.class_section || '',
       classroom: entry.classroom,
+      is_accessible_track: !!entry.is_accessible_track,
+      accommodation_type: entry.accommodation_type || 'none'
     })
     setIsEditDialogOpen(true)
   }
@@ -397,6 +410,8 @@ export default function Timetable() {
         period_name: period?.name || 'Unknown',
         start_time: period?.start_time || '',
         end_time: period?.end_time || '',
+        is_accessible_track: !!data.data.is_accessible_track,
+        accommodation_type: data.data.accommodation_type || 'none'
       }
 
       setTimetableData(prev => prev.map(item => item.id === updatedEntry.id ? updatedEntry : item))
@@ -444,7 +459,7 @@ export default function Timetable() {
     </div>
   )
 
-  const canManage = user?.role === 'admin' || user?.role === 'super_admin'
+  const canManage = user?.role === 'admin' || user?.role === 'super_admin' || user?.role === 'timetable_manager'
   
   const getHeaderTitle = () => {
     if (user?.role === 'student') return 'MY CLASS SCHEDULE'
@@ -494,19 +509,9 @@ export default function Timetable() {
             </div>
           )}
 
-          {!canManage && timetableData.length > 0 && (
-            <div className="bg-teal-50 border border-teal-200 text-teal-700 p-3 sm:p-4 rounded-lg mb-6 flex items-start gap-2 sm:gap-3">
-              <AlertCircle className="w-4 sm:w-5 h-4 sm:h-5 flex-shrink-0 mt-0.5" />
-              <div>
-                <p className="font-medium text-sm sm:text-base">Viewing personalized schedule</p>
-                <p className="text-xs sm:text-sm text-teal-600 mt-1">Below is your class schedule. Contact your school administrator if you notice any issues.</p>
-              </div>
-            </div>
-          )}
-
           <div className="bg-white p-3 sm:p-4 rounded-lg shadow-sm border border-slate-200 mb-6 flex flex-wrap items-center justify-between gap-2 sm:gap-4">
             <div className="flex items-center gap-2 sm:gap-4 flex-wrap w-full sm:w-auto">
-              {(user?.role === 'admin' || user?.role === 'super_admin') && (
+              {(user?.role === 'admin' || user?.role === 'super_admin' || user?.role === 'timetable_manager') && (
                 <div className="flex items-center gap-2 mr-2">
                   <div className="w-40">
                     <Select value={selectedGrade} onValueChange={setSelectedGrade}>
@@ -542,7 +547,7 @@ export default function Timetable() {
                         <span className="sm:hidden">Add</span>
                       </button>
                     </DialogTrigger>
-                    <DialogContent>
+                    <DialogContent className="max-w-md overflow-y-auto max-h-[90vh]">
                       <form onSubmit={handleAddSubmit}>
                         <DialogHeader>
                           <DialogTitle>Add Timetable Entry</DialogTitle>
@@ -550,8 +555,8 @@ export default function Timetable() {
                           Add a new timetable entry for the academic schedule
                         </DialogDescription>
                         </DialogHeader>
-                        <div className="py-4 space-y-4">
-                          <div className="space-y-2">
+                        <div className="py-3 space-y-3">
+                          <div className="space-y-1">
                             <Label htmlFor="day_of_week">Day of Week</Label>
                             <Select value={formData.day_of_week} onValueChange={(val) => handleFormChange('day_of_week', val)}>
                               <SelectTrigger><SelectValue /></SelectTrigger>
@@ -560,7 +565,7 @@ export default function Timetable() {
                               </SelectContent>
                             </Select>
                           </div>
-                          <div className="space-y-2">
+                          <div className="space-y-1">
                             <Label htmlFor="period_id">Time Period</Label>
                             <Select value={formData.period_id} onValueChange={(val) => handleFormChange('period_id', val)}>
                               <SelectTrigger><SelectValue placeholder="Select period" /></SelectTrigger>
@@ -569,7 +574,7 @@ export default function Timetable() {
                               </SelectContent>
                             </Select>
                           </div>
-                          <div className="space-y-2">
+                          <div className="space-y-1">
                             <Label htmlFor="course_id">Course</Label>
                             <Select value={formData.course_id} onValueChange={(val) => handleFormChange('course_id', val)}>
                               <SelectTrigger><SelectValue placeholder="Select course" /></SelectTrigger>
@@ -578,7 +583,7 @@ export default function Timetable() {
                               </SelectContent>
                             </Select>
                           </div>
-                          <div className="space-y-2">
+                          <div className="space-y-1">
                             <Label htmlFor="teacher_id">Teacher</Label>
                             <Select value={formData.teacher_id} onValueChange={(val) => handleFormChange('teacher_id', val)}>
                               <SelectTrigger><SelectValue placeholder={teachers.length === 0 ? "No teachers available" : "Select teacher"} /></SelectTrigger>
@@ -591,27 +596,29 @@ export default function Timetable() {
                               </SelectContent>
                             </Select>
                           </div>
-                          <div className="space-y-2">
-                            <Label htmlFor="grade">Grade</Label>
-                            <Select value={formData.grade} onValueChange={(val) => handleFormChange('grade', val)}>
-                              <SelectTrigger><SelectValue placeholder="Select grade" /></SelectTrigger>
-                              <SelectContent>
-                                {gradeLevels.map(grade => (
-                                  <SelectItem key={grade} value={grade}>{grade}</SelectItem>
-                                ))}
-                              </SelectContent>
-                            </Select>
+                          <div className="grid grid-cols-2 gap-2">
+                            <div className="space-y-1">
+                              <Label htmlFor="grade">Grade</Label>
+                              <Select value={formData.grade} onValueChange={(val) => handleFormChange('grade', val)}>
+                                <SelectTrigger><SelectValue placeholder="Select grade" /></SelectTrigger>
+                                <SelectContent>
+                                  {gradeLevels.map(grade => (
+                                    <SelectItem key={grade} value={grade}>{grade}</SelectItem>
+                                  ))}
+                                </SelectContent>
+                              </Select>
+                            </div>
+                            <div className="space-y-1">
+                              <Label htmlFor="class_section">Section (Stream)</Label>
+                              <Input
+                                id="class_section"
+                                value={formData.class_section}
+                                onChange={(e) => handleFormChange('class_section', e.target.value)}
+                                placeholder="e.g., A, B"
+                              />
+                            </div>
                           </div>
-                          <div className="space-y-2">
-                            <Label htmlFor="class_section">Section (Stream)</Label>
-                            <Input
-                              id="class_section"
-                              value={formData.class_section}
-                              onChange={(e) => handleFormChange('class_section', e.target.value)}
-                              placeholder="e.g., North, West, A, B"
-                            />
-                          </div>
-                          <div className="space-y-2">
+                          <div className="space-y-1">
                             <Label htmlFor="classroom">Room</Label>
                             <Input
                               id="classroom"
@@ -620,9 +627,46 @@ export default function Timetable() {
                               placeholder="e.g., Room 101"
                             />
                           </div>
+
+                          {/* Accessibility Features Section */}
+                          <div className="p-3 bg-slate-50 border rounded-xl space-y-3 mt-2">
+                            <div className="flex items-center justify-between">
+                              <div className="space-y-0.5">
+                                <Label className="text-xs font-semibold text-slate-900 cursor-pointer" htmlFor="is_accessible_track">
+                                  Special Education / Adaptive Session
+                                </Label>
+                                <p className="text-[11px] text-slate-500">
+                                  Mark if this period loop includes specific disability accommodation settings.
+                                </p>
+                              </div>
+                              <input
+                                id="is_accessible_track"
+                                type="checkbox"
+                                className="h-4 w-4 rounded border-slate-300 text-emerald-600 focus:ring-emerald-500 cursor-pointer accent-emerald-600"
+                                checked={formData.is_accessible_track}
+                                onChange={(e) => handleFormChange('is_accessible_track', e.target.checked)}
+                              />
+                            </div>
+                           {formData.is_accessible_track && (
+  <div className="space-y-1 animate-in fade-in duration-200">
+    <Label htmlFor="edit_accommodation_type" className="text-xs">Accommodation Overlay Engine</Label>
+    <Select value={formData.accommodation_type} onValueChange={(val) => handleFormChange('accommodation_type', val)}>
+      <SelectTrigger id="edit_accommodation_type" className="bg-white h-9 text-xs">
+        <SelectValue placeholder="Select impairment track parameters" />
+      </SelectTrigger>
+      <SelectContent>
+        <SelectItem value="hearing_ksl">Kenyan Sign Language (KSL Interpreter Engaged)</SelectItem>
+        <SelectItem value="visual_braille">Braille Tactile / Voice Reader Engine Active</SelectItem>
+        <SelectItem value="mobility_switch">Mobility Accommodation / Switch Scanning Sequence</SelectItem>
+      </SelectContent>
+    </Select>
+  </div>
+)}
+                          </div>
+
                           {renderFormError(formError)}
                         </div>
-                        <DialogFooter>
+                        <DialogFooter className="mt-2">
                           <Button type="button" variant="outline" onClick={() => setIsAddDialogOpen(false)}>
                             Cancel
                           </Button>
@@ -722,7 +766,7 @@ export default function Timetable() {
                 </Select>
               </div>
 
-              <div className=", m md:block bg-white rounded-xl shadow-sm border border-slate-200 overflow-hidden flex flex-col h-[600px]">
+              <div className="hidden md:block bg-white rounded-xl shadow-sm border border-slate-200 overflow-hidden flex flex-col h-[600px]">
                 <div className="grid grid-cols-[60px_1fr_1fr_1fr_1fr_1fr] lg:grid-cols-[80px_1fr_1fr_1fr_1fr_1fr] bg-slate-800 text-white font-semibold text-xs lg:text-sm uppercase text-center sticky top-0">
                   <div className="p-2 lg:p-4 border-r border-slate-700"></div>
                   {['monday', 'tuesday', 'wednesday', 'thursday', 'friday'].map(day => (
@@ -807,10 +851,13 @@ export default function Timetable() {
                           {dayEntries.map((entry, idx) => {
                             const color = getColorForCourse(idx) as keyof typeof colorStyles
                             return (
-                              <div key={entry.id} className={`rounded-md p-3 text-sm ${colorStyles[color]}`}>
-                                <div className="font-semibold mb-1">
-                                  {entry.course_name}
-                                  {entry.class_section && <span className="ml-2 text-[10px] opacity-70">({entry.class_section})</span>}
+                              <div key={entry.id} className={`rounded-md p-3 text-sm relative ${colorStyles[color]}`}>
+                                <div className="font-semibold mb-1 flex items-center justify-between gap-1 flex-wrap">
+                                  <span className="flex items-center gap-1.5">
+                                    {entry.course_name}
+                                    {entry.is_accessible_track && <Accessibility size={14} className="text-emerald-700 animate-pulse" />}
+                                  </span>
+                                  {entry.class_section && <span className="text-[10px] opacity-70">({entry.class_section})</span>}
                                 </div>
                                 <div className={`text-xs space-y-1 ${labelColorStyles[color]}`}>
                                   <div className="flex items-center gap-1">
@@ -819,6 +866,13 @@ export default function Timetable() {
                                   <div className="flex items-center gap-1">
                                     <MapPin size={12} /> Room: {entry.classroom}
                                   </div>
+                                  {entry.is_accessible_track && entry.accommodation_type !== 'none' && (
+                                    <div className="text-[10px] bg-white/60 p-0.5 px-1 rounded font-bold border border-emerald-200/50 mt-1 inline-block">
+                                      {entry.accommodation_type === 'hearing_ksl' && '🧏 KSL Interpreter Active'}
+                                      {entry.accommodation_type === 'visual_braille' && '👁️ Voice Engine / Tactile active'}
+                                      {entry.accommodation_type === 'mobility_switch' && '🕹️ Dynamic Switch Control Track'}
+                                    </div>
+                                  )}
                                 </div>
                                 {canManage && (
                                   <div className="flex gap-1 mt-2">
@@ -852,13 +906,13 @@ export default function Timetable() {
 
       {canManage && (
         <Dialog open={isEditDialogOpen} onOpenChange={(open) => { setIsEditDialogOpen(open); setFormData(EMPTY_FORM); setFormError(null); }}>
-          <DialogContent>
+          <DialogContent className="max-w-md overflow-y-auto max-h-[90vh]">
             <form onSubmit={handleEditSubmit}>
               <DialogHeader>
                 <DialogTitle>Edit Timetable Entry</DialogTitle>
               </DialogHeader>
-              <div className="py-4 space-y-4">
-                <div className="space-y-2">
+              <div className="py-3 space-y-3">
+                <div className="space-y-1">
                   <Label htmlFor="edit_day_of_week">Day of Week</Label>
                   <Select value={formData.day_of_week} onValueChange={(val) => handleFormChange('day_of_week', val)}>
                     <SelectTrigger><SelectValue /></SelectTrigger>
@@ -867,7 +921,7 @@ export default function Timetable() {
                     </SelectContent>
                   </Select>
                 </div>
-                <div className="space-y-2">
+                <div className="space-y-1">
                   <Label htmlFor="edit_period_id">Time Period</Label>
                   <Select value={formData.period_id} onValueChange={(val) => handleFormChange('period_id', val)}>
                     <SelectTrigger><SelectValue placeholder="Select period" /></SelectTrigger>
@@ -876,7 +930,7 @@ export default function Timetable() {
                     </SelectContent>
                   </Select>
                 </div>
-                <div className="space-y-2">
+                <div className="space-y-1">
                   <Label htmlFor="edit_course_id">Course</Label>
                   <Select value={formData.course_id} onValueChange={(val) => handleFormChange('course_id', val)}>
                     <SelectTrigger><SelectValue placeholder="Select course" /></SelectTrigger>
@@ -885,7 +939,7 @@ export default function Timetable() {
                     </SelectContent>
                   </Select>
                 </div>
-                <div className="space-y-2">
+                <div className="space-y-1">
                   <Label htmlFor="edit_teacher_id">Teacher</Label>
                   <Select value={formData.teacher_id} onValueChange={(val) => handleFormChange('teacher_id', val)}>
                     <SelectTrigger><SelectValue placeholder={teachers.length === 0 ? "No teachers available" : "Select teacher"} /></SelectTrigger>
@@ -898,27 +952,29 @@ export default function Timetable() {
                     </SelectContent>
                   </Select>
                 </div>
-                <div className="space-y-2">
-                  <Label htmlFor="edit_grade">Grade</Label>
-                  <Select value={formData.grade} onValueChange={(val) => handleFormChange('grade', val)}>
-                    <SelectTrigger><SelectValue placeholder="Select grade" /></SelectTrigger>
-                    <SelectContent>
-                      {gradeLevels.map(grade => (
-                        <SelectItem key={grade} value={grade}>{grade}</SelectItem>
-                      ))}
-                    </SelectContent>
-                  </Select>
+                <div className="grid grid-cols-2 gap-2">
+                  <div className="space-y-1">
+                    <Label htmlFor="edit_grade">Grade</Label>
+                    <Select value={formData.grade} onValueChange={(val) => handleFormChange('grade', val)}>
+                      <SelectTrigger><SelectValue placeholder="Select grade" /></SelectTrigger>
+                      <SelectContent>
+                        {gradeLevels.map(grade => (
+                          <SelectItem key={grade} value={grade}>{grade}</SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
+                  </div>
+                  <div className="space-y-1">
+                    <Label htmlFor="edit_class_section">Section (Stream)</Label>
+                    <Input
+                      id="edit_class_section"
+                      value={formData.class_section}
+                      onChange={(e) => handleFormChange('class_section', e.target.value)}
+                      placeholder="e.g., A, B"
+                    />
+                  </div>
                 </div>
-                <div className="space-y-2">
-                  <Label htmlFor="edit_class_section">Section (Stream)</Label>
-                  <Input
-                    id="edit_class_section"
-                    value={formData.class_section}
-                    onChange={(e) => handleFormChange('class_section', e.target.value)}
-                    placeholder="e.g., North, West, A, B"
-                  />
-                </div>
-                <div className="space-y-2">
+                <div className="space-y-1">
                   <Label htmlFor="edit_room">Room</Label>
                   <Input
                     id="edit_room"
@@ -927,9 +983,44 @@ export default function Timetable() {
                     placeholder="e.g., Room 101"
                   />
                 </div>
+
+                {/* Accessibility Features Section in Edit */}
+                <div className="p-3 bg-slate-50 border rounded-xl space-y-3 mt-2">
+                  <div className="flex items-center justify-between">
+                    <div className="space-y-0.5">
+                      <Label className="text-xs font-semibold text-slate-900 cursor-pointer" htmlFor="edit_is_accessible_track">
+                        Special Education / Adaptive Session
+                      </Label>
+                    </div>
+                    <input
+                      id="edit_is_accessible_track"
+                      type="checkbox"
+                      className="h-4 w-4 rounded border-slate-300 text-emerald-600 focus:ring-emerald-500 cursor-pointer accent-emerald-600"
+                      checked={formData.is_accessible_track}
+                      onChange={(e) => handleFormChange('is_accessible_track', e.target.checked)}
+                    />
+                  </div>
+                  if ({formData.is_accessible_track && (
+  <div className="space-y-1 animate-in fade-in duration-200">
+    <Label htmlFor="edit_accommodation_type" className="text-xs">Accommodation Overlay Engine</Label>
+    <Select value={formData.accommodation_type} onValueChange={(val) => handleFormChange('accommodation_type', val)}>
+      <SelectTrigger id="edit_accommodation_type" className="bg-white h-9 text-xs">
+        <SelectValue placeholder="Select impairment track parameters" />
+      </SelectTrigger>
+      <SelectContent>
+        <SelectItem value="hearing_ksl">Kenyan Sign Language (KSL Interpreter Engaged)</SelectItem>
+        <SelectItem value="visual_braille">Braille Tactile / Voice Reader Engine Active</SelectItem>
+        <SelectItem value="mobility_switch">Mobility Accommodation / Switch Scanning Sequence</SelectItem>
+      </SelectContent>
+    </Select>
+  </div>
+)}
+                  )
+                </div>
+
                 {renderFormError(formError)}
               </div>
-              <DialogFooter>
+              <DialogFooter className="mt-2">
                 <Button type="button" variant="outline" onClick={() => setIsEditDialogOpen(false)}>
                   Cancel
                 </Button>
@@ -967,20 +1058,30 @@ function ClassCardWithActions({ entry, colorStyle, labelColorStyle, canManage, o
         </div>
       </div>
 
-      <div>
-        <h3 className="font-bold text-xs lg:text-sm leading-tight mb-1 line-clamp-2">{entry.course_name}</h3>
+      <div className="space-y-0.5">
+        <h3 className="font-bold text-xs lg:text-sm leading-tight line-clamp-2 flex items-center gap-1">
+          {entry.course_name}
+          {entry.is_accessible_track && <Accessibility size={13} className="text-emerald-700 animate-pulse flex-shrink-0" />}
+        </h3>
       </div>
 
       <div className={`text-xs space-y-0.5 lg:space-y-1 ${labelColorStyle} font-medium opacity-90`}>
         {entry.class_section && (
-          <div className="font-bold text-[10px] uppercase mb-1">Section: {entry.class_section}</div>
+          <div className="font-bold text-[10px] uppercase">Section: {entry.class_section}</div>
         )}
         <div className="flex items-center gap-0.5 lg:gap-1 truncate">
-          <User size={10} className="flex-shrink-0 lg:w-3 lg:h-3" /> <span className="truncate text-xs">{entry.teacher_name || 'N/A'}</span>
+          <User size={10} className="flex-shrink-0 lg:w-3 lg:h-3" /> <span className="truncate text-[11px] lg:text-xs">{entry.teacher_name || 'N/A'}</span>
         </div>
         <div className="flex items-center gap-0.5 lg:gap-1 truncate">
-          <MapPin size={10} className="flex-shrink-0 lg:w-3 lg:h-3" /> <span className="truncate text-xs">Rm: {entry.classroom}</span>
+          <MapPin size={10} className="flex-shrink-0 lg:w-3 lg:h-3" /> <span className="truncate text-[11px] lg:text-xs">Rm: {entry.classroom}</span>
         </div>
+        {entry.is_accessible_track && entry.accommodation_type !== 'none' && (
+          <div className="text-[9px] bg-white/60 p-0.5 rounded font-extrabold border border-emerald-200/40 truncate w-full mt-0.5 block">
+            {entry.accommodation_type === 'hearing_ksl' && '🧏 KSL Active'}
+            {entry.accommodation_type === 'visual_braille' && '👁️ Braille/Voice'}
+            {entry.accommodation_type === 'mobility_switch' && '🕹️ Switch Track'}
+          </div>
+        )}
       </div>
 
       {canManage && (

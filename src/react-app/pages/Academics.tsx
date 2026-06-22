@@ -1,3 +1,4 @@
+
 import { useEffect, useState, FormEvent } from 'react'
 import { BookOpen, FileText, Award, Download, AlertCircle, Loader2, User } from 'lucide-react'
 import { Button } from '../components/ui/button'
@@ -49,7 +50,7 @@ const CURRICULUM_LEVELS: Record<string, string[]> = {
 }
 
 export default function Academics() {
-  const { user } = useAuth()
+  const { user } = useAuth() as any
   const api = useApi()
   const navigate = useNavigate()
   
