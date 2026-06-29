@@ -12,6 +12,7 @@ from datetime import timedelta
 from typing import Optional
 import logging
 import traceback
+import os
 
 from database import get_db, init_db
 from models import User, School, school_users, UserRole
@@ -323,10 +324,6 @@ async def list_school_staff(
     db: AsyncSession = Depends(get_db),
     current_school: School = Depends(get_current_school)
 ):
-    """
-    Fetches all members belonging to the current school network tenant.
-    Returns a unified response envelope with dynamically joined multi-tenant fields.
-    """
     query = select(
         User.id,
         User.full_name.label("name"),
@@ -344,17 +341,19 @@ async def list_school_staff(
     
     staff_list = []
     for row in rows:
-        if row.role in [UserRole.STUDENT, UserRole.PARENT]:
+        # Safeguard Enum string comparisons
+        role_str = str(row.role.value if hasattr(row.role, 'value') else row.role).lower()
+        if role_str in ["student", "parent"]:
             continue
             
         staff_list.append({
             "id": str(row.id),
-            "name": row.name,
+            "name": row.name or "",
             "email": row.email,
             "phone": "",
-            "role": str(row.role.value if hasattr(row.role, 'value') else row.role),
-            "department": "Administration" if row.role == UserRole.ADMIN else "Academics",
-            "status": "active" if row.is_active else "inactive",
+            "role": role_str,
+            "department": "Administration" if role_str == "admin" else "Academics",
+            "status": "Active" if row.is_active else "Inactive",
             "hire_date": None,
             "class_assigned": None,
             "subject": None

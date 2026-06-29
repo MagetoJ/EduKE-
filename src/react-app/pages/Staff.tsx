@@ -94,21 +94,26 @@ export default function Staff() {
 
         if (response.ok && data.success) {
           const mappedStaff: StaffMember[] = data.data.map((member: Record<string, unknown>) => {
-            const id = member.id as unknown as number
-            const role = member.role as unknown as string
-            const status = member.status as unknown as string
+            const rawRole = member.role as string || '';
+            const rawStatus = member.status as string || 'Active';
+            
+            // FIX: Gracefully converts multi-word roles (e.g., class_teacher -> Class Teacher)
+            const formattedRole = rawRole
+              ? rawRole.split('_').map(word => word.charAt(0).toUpperCase() + word.slice(1)).join(' ')
+              : 'Staff';
+
             return {
-              id: id.toString(),
-              name: member.name || `${member.first_name} ${member.last_name}`.trim(),
-              email: member.email,
-              phone: member.phone || '',
-              role: role ? role.charAt(0).toUpperCase() + role.slice(1) : 'Staff',
-              department: member.department || 'General',
-              hire_date: member.hire_date || new Date().toISOString(),
-              status: status ? status.charAt(0).toUpperCase() + status.slice(1) : 'Active',
-              avatar_url: member.avatar_url || 'https://images.unsplash.com/photo-1506794778202-cad84cf45f1d?w=150&h=150&fit=crop&crop=face',
-              class_assigned: member.class_assigned,
-              subject: member.subject
+              id: String(member.id), // FIX: Keep ID representation consistently as a string
+              name: String(member.name || `${member.first_name || ''} ${member.last_name || ''}`).trim(),
+              email: String(member.email || ''),
+              phone: String(member.phone || ''),
+              role: formattedRole,
+              department: String(member.department || 'General'),
+              hire_date: String(member.hire_date || new Date().toISOString()),
+              status: rawStatus.charAt(0).toUpperCase() + rawStatus.slice(1).toLowerCase(),
+              avatar_url: String(member.avatar_url || 'https://images.unsplash.com/photo-1506794778202-cad84cf45f1d?w=150&h=150&fit=crop&crop=face'),
+              class_assigned: member.class_assigned ? String(member.class_assigned) : undefined,
+              subject: member.subject ? String(member.subject) : undefined
             }
           })
           setStaff(mappedStaff)
@@ -137,7 +142,7 @@ export default function Staff() {
             const requestStatus = request.status as unknown as string
             return {
               id: id.toString(),
-              staffName: request.staff_name || `${request.first_name} ${request.last_name}`.trim(),
+              staffName: request.staff_name || `${request.first_name || ''} ${request.last_name || ''}`.trim(),
               type: request.leave_type_name || 'Leave',
               startDate: request.start_date,
               endDate: request.end_date,
@@ -225,7 +230,7 @@ export default function Staff() {
           body: JSON.stringify({
             name: `${formData.firstName} ${formData.lastName}`.trim(),
             email: formData.email,
-            password: formData.password || 'Temporary123!', // Default password if not provided
+            password: formData.password || 'Temporary123!',
             role: formData.role,
             phone: formData.phone,
             school_id: formData.school_id,
@@ -246,21 +251,24 @@ export default function Staff() {
       
       if (response.ok && staffData.success) {
         const mappedStaff: StaffMember[] = staffData.data.map((member: Record<string, unknown>) => {
-          const id = member.id as unknown as number
-          const role = member.role as unknown as string
-          const status = member.status as unknown as string
+          const rawRole = member.role as string || '';
+          const rawStatus = member.status as string || 'Active';
+          const formattedRole = rawRole
+            ? rawRole.split('_').map(word => word.charAt(0).toUpperCase() + word.slice(1)).join(' ')
+            : 'Staff';
+
           return {
-            id: id.toString(),
-            name: member.name || `${member.first_name} ${member.last_name}`.trim(),
-            email: member.email,
-            phone: member.phone || '',
-            role: role ? role.charAt(0).toUpperCase() + role.slice(1) : 'Staff',
-            department: member.department || 'General',
-            hire_date: member.hire_date || new Date().toISOString(),
-            status: status ? status.charAt(0).toUpperCase() + status.slice(1) : 'Active',
-            avatar_url: member.avatar_url || 'https://images.unsplash.com/photo-1506794778202-cad84cf45f1d?w=150&h=150&fit=crop&crop=face',
-            class_assigned: member.class_assigned,
-            subject: member.subject
+            id: String(member.id),
+            name: String(member.name || `${member.first_name || ''} ${member.last_name || ''}`).trim(),
+            email: String(member.email || ''),
+            phone: String(member.phone || ''),
+            role: formattedRole,
+            department: String(member.department || 'General'),
+            hire_date: String(member.hire_date || new Date().toISOString()),
+            status: rawStatus.charAt(0).toUpperCase() + rawStatus.slice(1).toLowerCase(),
+            avatar_url: String(member.avatar_url || 'https://images.unsplash.com/photo-1506794778202-cad84cf45f1d?w=150&h=150&fit=crop&crop=face'),
+            class_assigned: member.class_assigned ? String(member.class_assigned) : undefined,
+            subject: member.subject ? String(member.subject) : undefined
           }
         })
         setStaff(mappedStaff)
@@ -324,21 +332,24 @@ export default function Staff() {
       
       if (updatedStaff.ok && updatedData.success) {
         const mappedStaff: StaffMember[] = updatedData.data.map((member: Record<string, unknown>) => {
-          const id = member.id as unknown as number
-          const role = member.role as unknown as string
-          const status = member.status as unknown as string
+          const rawRole = member.role as string || '';
+          const rawStatus = member.status as string || 'Active';
+          const formattedRole = rawRole
+            ? rawRole.split('_').map(word => word.charAt(0).toUpperCase() + word.slice(1)).join(' ')
+            : 'Staff';
+
           return {
-            id: id.toString(),
-            name: member.name || `${member.first_name} ${member.last_name}`.trim(),
-            email: member.email,
-            phone: member.phone || '',
-            role: role ? role.charAt(0).toUpperCase() + role.slice(1) : 'Staff',
-            department: member.department || 'General',
-            hire_date: member.hire_date || new Date().toISOString(),
-            status: status ? status.charAt(0).toUpperCase() + status.slice(1) : 'Active',
-            avatar_url: member.avatar_url || 'https://images.unsplash.com/photo-1506794778202-cad84cf45f1d?w=150&h=150&fit=crop&crop=face',
-            class_assigned: member.class_assigned,
-            subject: member.subject
+            id: String(member.id),
+            name: String(member.name || `${member.first_name || ''} ${member.last_name || ''}`).trim(),
+            email: String(member.email || ''),
+            phone: String(member.phone || ''),
+            role: formattedRole,
+            department: String(member.department || 'General'),
+            hire_date: String(member.hire_date || new Date().toISOString()),
+            status: rawStatus.charAt(0).toUpperCase() + rawStatus.slice(1).toLowerCase(),
+            avatar_url: String(member.avatar_url || 'https://images.unsplash.com/photo-1506794778202-cad84cf45f1d?w=150&h=150&fit=crop&crop=face'),
+            class_assigned: member.class_assigned ? String(member.class_assigned) : undefined,
+            subject: member.subject ? String(member.subject) : undefined
           }
         })
         setStaff(mappedStaff)
