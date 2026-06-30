@@ -1,7 +1,7 @@
 import React, { useState, useEffect, useRef } from 'react'
 import {
   Plus, Edit, Trash2, Loader2, AlertCircle, User, MapPin,
-  Printer, Download, X, BookOpen, Clock
+  Printer, Download, BookOpen, Clock
 } from 'lucide-react'
 import { Button } from '../components/ui/button'
 import {
@@ -190,7 +190,7 @@ export default function Timetable() {
 
         let teacherData = { data: [] }
         try {
-          const tr = await api('/api/teachers')
+          const tr = await api('/api/staff') 
           if (tr.ok) teacherData = await tr.json()
         } catch { /* teachers optional */ }
 
@@ -204,7 +204,8 @@ export default function Timetable() {
         })
 
         setTimetableData((tableData.data  || []).map(normalize))
-        setCourses( (courseData.data  || []).map((c: Course)  => ({ ...c, id: String(c.id) })))
+        const coursesArray = Array.isArray(courseData) ? courseData : (courseData.data || [])
+        setCourses(coursesArray.map((c: Course) => ({ ...c, id: String(c.id) })))
         setTeachers((teacherData.data || []).map((t: Teacher) => ({ ...t, id: String(t.id) })))
         setPeriods( (periodData.data  || []).map((p: TimePeriod) => ({ ...p, id: String(p.id) })))
       } catch (err) {
@@ -238,28 +239,45 @@ export default function Timetable() {
     const err = validateMainForm()
     if (err) { setFormError(err); return }
     setIsSubmitting(true); setFormError(null)
+    
     try {
-      const res  = await api('/api/timetable', { method: 'POST', body: JSON.stringify(formData) })
+      const course  = courses.find(c => String(c.id) === String(formData.course_id))
+      const period  = periods.find(p => String(p.id) === String(formData.period_id))
+      const teacher = teachers.find(t => String(t.id) === String(formData.teacher_id))
+
+      // 1. Map frontend formData to backend schema expectations
+      const payload = {
+        subject_id: parseInt(formData.course_id),
+        teacher_id: formData.teacher_id && formData.teacher_id !== '__none' ? parseInt(formData.teacher_id) : null,
+        day_of_week: formData.day_of_week,
+        start_time: period?.start_time || '',
+        end_time: period?.end_time || '',
+        room: formData.classroom,
+        grade_level: formData.grade
+      }
+
+      const res  = await api('/api/timetable', { method: 'POST', body: JSON.stringify(payload) })
       const data = await res.json()
-      if (!res.ok) throw new Error(data.error || 'Failed to create entry')
+      if (!res.ok) throw new Error(data.detail || data.error || 'Failed to create entry')
 
-      const course  = courses.find(c => String(c.id) === String(data.data.course_id))
-      const period  = periods.find(p => String(p.id) === String(data.data.period_id))
-      const teacher = teachers.find(t => String(t.id) === String(data.data.teacher_id))
-
+      // 2. Construct the new entry locally since backend only returns the ID
       setTimetableData(prev => [{
-        ...data.data,
         id: String(data.data.id),
-        course_id:  String(data.data.course_id),
-        teacher_id: String(data.data.teacher_id),
-        period_id:  String(data.data.period_id),
-        course_name:  course?.name   || 'Unknown',
-        teacher_name: teacher?.name  || 'N/A',
-        period_name:  period?.name   || '',
-        start_time:   period?.start_time || '',
-        end_time:     period?.end_time   || '',
-        is_accessible_track: !!data.data.is_accessible_track,
-        accommodation_type:  data.data.accommodation_type || 'none',
+        course_id: formData.course_id,
+        teacher_id: formData.teacher_id,
+        period_id: formData.period_id,
+        course_name: course?.name || 'Unknown',
+        teacher_name: teacher?.name || 'N/A',
+        period_name: period?.name || '',
+        start_time: period?.start_time || '',
+        end_time: period?.end_time || '',
+        day_of_week: formData.day_of_week,
+        grade: formData.grade,
+        classroom: formData.classroom,
+        class_section: formData.class_section,
+        is_accessible_track: formData.is_accessible_track,
+        accommodation_type: formData.accommodation_type,
+        is_break: false
       }, ...prev])
 
       setIsAddDialogOpen(false)
@@ -277,29 +295,47 @@ export default function Timetable() {
     const err = validateMainForm()
     if (err) { setFormError(err); return }
     setIsSubmitting(true); setFormError(null)
+    
     try {
-      const res  = await api(`/api/timetable/${formData.id}`, { method: 'PUT', body: JSON.stringify(formData) })
-      const data = await res.json()
-      if (!res.ok) throw new Error(data.error || 'Failed to update entry')
+      const course  = courses.find(c => String(c.id) === String(formData.course_id))
+      const period  = periods.find(p => String(p.id) === String(formData.period_id))
+      const teacher = teachers.find(t => String(t.id) === String(formData.teacher_id))
 
-      const course  = courses.find(c => String(c.id) === String(data.data.course_id))
-      const period  = periods.find(p => String(p.id) === String(data.data.period_id))
-      const teacher = teachers.find(t => String(t.id) === String(data.data.teacher_id))
-
-      const updated: TimetableEntry = {
-        ...data.data,
-        id: String(data.data.id),
-        course_id:  String(data.data.course_id),
-        teacher_id: String(data.data.teacher_id),
-        period_id:  String(data.data.period_id),
-        course_name:  course?.name   || 'Unknown',
-        teacher_name: teacher?.name  || 'N/A',
-        period_name:  period?.name   || '',
-        start_time:   period?.start_time || '',
-        end_time:     period?.end_time   || '',
-        is_accessible_track: !!data.data.is_accessible_track,
-        accommodation_type:  data.data.accommodation_type || 'none',
+      // 1. Map frontend formData to backend schema expectations
+      const payload = {
+        subject_id: parseInt(formData.course_id),
+        teacher_id: formData.teacher_id && formData.teacher_id !== '__none' ? parseInt(formData.teacher_id) : null,
+        day_of_week: formData.day_of_week,
+        start_time: period?.start_time || '',
+        end_time: period?.end_time || '',
+        room: formData.classroom,
+        grade_level: formData.grade
       }
+
+      const res  = await api(`/api/timetable/${formData.id}`, { method: 'PUT', body: JSON.stringify(payload) })
+      const data = await res.json()
+      if (!res.ok) throw new Error(data.detail || data.error || 'Failed to update entry')
+
+      // 2. Construct updated entry manually
+      const updated: TimetableEntry = {
+        id: String(formData.id),
+        course_id: formData.course_id,
+        teacher_id: formData.teacher_id,
+        period_id: formData.period_id,
+        course_name: course?.name || 'Unknown',
+        teacher_name: teacher?.name || 'N/A',
+        period_name: period?.name || '',
+        start_time: period?.start_time || '',
+        end_time: period?.end_time || '',
+        day_of_week: formData.day_of_week,
+        grade: formData.grade,
+        classroom: formData.classroom,
+        class_section: formData.class_section,
+        is_accessible_track: formData.is_accessible_track,
+        accommodation_type: formData.accommodation_type,
+        is_break: false
+      }
+      
       setTimetableData(prev => prev.map(item => item.id === updated.id ? updated : item))
       setIsEditDialogOpen(false)
       setFormData(EMPTY_FORM)
@@ -367,7 +403,7 @@ export default function Timetable() {
     const rows = periods.map(period => {
       const cells = DAYS.map(day => {
         const entry = timetableData.find(e =>
-          e.day_of_week === day && String(e.period_id) === String(period.id)
+          e.day_of_week === day && e.start_time === period.start_time && e.end_time === period.end_time
         )
         if (!entry) return '<td style="border:1px solid #ddd;padding:8px;"></td>'
         if (entry.is_break) return `<td style="border:1px solid #ddd;padding:8px;background:#f5f5f5;text-align:center;color:#888;font-style:italic;">Break</td>`
@@ -539,7 +575,7 @@ export default function Timetable() {
           />
         </div>
 
-        {/* FIX: was rendered as plain text `if ({...` — now a proper conditional */}
+        {/* FIX: was rendered as  `if ({...` — now a proper conditional */}
         {formData.is_accessible_track && (
           <div className="space-y-1">
             <Label className="text-xs">Accommodation Type</Label>
@@ -764,7 +800,7 @@ export default function Timetable() {
                     {/* Day cells */}
                     {DAYS.map(day => {
                       const entry = timetableData.find(e =>
-                        e.day_of_week === day && String(e.period_id) === String(period.id)
+                        e.day_of_week === day && e.start_time === period.start_time && e.end_time === period.end_time
                       )
                       if (period.is_break) {
                         return (
@@ -915,7 +951,7 @@ export default function Timetable() {
                   </td>
                   {DAYS.map(day => {
                     const entry = timetableData.find(e =>
-                      e.day_of_week === day && String(e.period_id) === String(period.id)
+                      e.day_of_week === day && e.start_time === period.start_time && e.end_time === period.end_time
                     )
                     if (period.is_break) return (
                       <td key={day} style={{ border: '1px solid #ddd', padding: '6px 8px', textAlign: 'center', color: '#aaa', fontStyle: 'italic', background: '#f8fafc' }}>Break</td>

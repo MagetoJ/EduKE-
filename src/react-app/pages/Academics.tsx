@@ -113,7 +113,7 @@ export default function Academics() {
         const assignmentsData = await assignmentsRes.json()
         const examsData = await examsRes.json()
 
-        setCourses(coursesData.data || [])
+        setCourses(Array.isArray(coursesData) ? coursesData : (coursesData.data || []))
         setAssignments(assignmentsData.data || [])
         setExams(examsData.data || [])
 
