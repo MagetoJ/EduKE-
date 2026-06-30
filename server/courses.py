@@ -8,6 +8,9 @@ from database import get_db
 from models import Course, School
 from auth import get_current_school, get_current_user
 
+import logging
+logger = logging.getLogger(__name__)
+
 router = APIRouter(prefix="/courses", tags=["Academic Courses"])
 
 # Pydantic schemas for request validation
@@ -61,7 +64,7 @@ async def create_course(
     await db.commit()
     await db.refresh(new_course)
     return new_course
-@router.get("/{course_id}", response_model=CourseResponse)
+@router.get("/{course_id}")
 async def get_course(
     course_id: int,
     db: AsyncSession = Depends(get_db),
@@ -74,9 +77,19 @@ async def get_course(
     course = result.scalar_one_or_none()
     
     if not course:
+        # Diagnostic: check if the course exists at all, just under a different school
+        debug_result = await db.execute(select(Course).where(Course.id == course_id))
+        existing = debug_result.scalar_one_or_none()
+        if existing:
+            logger.warning(
+                f"Course {course_id} exists with school_id={existing.school_id}, "
+                f"but request is scoped to school_id={current_school.id}"
+            )
+        else:
+            logger.warning(f"Course {course_id} does not exist in the database at all")
         raise HTTPException(status_code=404, detail="Course not found")
         
-    return course
+    return {"success": True, "data": CourseResponse.model_validate(course)}
 
 @router.get("/{course_id}/students")
 async def get_course_students(

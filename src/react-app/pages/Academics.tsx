@@ -113,9 +113,9 @@ export default function Academics() {
         const assignmentsData = await assignmentsRes.json()
         const examsData = await examsRes.json()
 
-        setCourses(Array.isArray(coursesData) ? coursesData : (coursesData.data || []))
-        setAssignments(assignmentsData.data || [])
-        setExams(examsData.data || [])
+        setCourses((Array.isArray(coursesData) ? coursesData : (coursesData.data || [])).filter((c: Course) => c && c.id))
+        setAssignments((assignmentsData.data || []).filter((a: Assignment) => a && a.id))
+        setExams((examsData.data || []).filter((ex: Exam) => ex && ex.id))
 
         // Conditionally fetch staff data only for admins
         if (user.role === 'admin') {
@@ -153,7 +153,11 @@ export default function Academics() {
         throw new Error(data.error || 'Failed to create course')
       }
       const newCourse = await response.json()
-      setCourses(prev => [newCourse.data, ...prev])
+      const createdCourse = newCourse?.data ?? newCourse
+      if (!createdCourse || !createdCourse.id) {
+        throw new Error('Server returned an unexpected response while creating the course')
+      }
+      setCourses(prev => [createdCourse, ...prev])
       setIsCourseDialogOpen(false)
       setCourseForm({ name: '', code: '', teacher_id: '', grade: '', description: '' })
     } catch (err) {
@@ -180,10 +184,14 @@ export default function Academics() {
         throw new Error(data.error || 'Failed to create assignment')
       }
       const newAssignment = await response.json()
+      const createdAssignment = newAssignment?.data ?? newAssignment
+      if (!createdAssignment || !createdAssignment.id) {
+        throw new Error('Server returned an unexpected response while creating the assignment')
+      }
       // Add course_name to the new assignment for UI consistency
-      const course = courses.find(c => c.id === newAssignment.data.course_id.toString())
-      newAssignment.data.course_name = course?.name || 'Unknown Course'
-      setAssignments(prev => [newAssignment.data, ...prev])
+      const course = courses.find(c => c.id === createdAssignment.course_id?.toString())
+      createdAssignment.course_name = course?.name || 'Unknown Course'
+      setAssignments(prev => [createdAssignment, ...prev])
       setIsAssignmentDialogOpen(false)
       setAssignmentForm({ title: '', course_id: '', due_date: '', max_score: '100', assignment_type: 'homework' })
     } catch (err) {
@@ -211,10 +219,14 @@ export default function Academics() {
         throw new Error(data.error || 'Failed to create exam')
       }
       const newExam = await response.json()
+      const createdExam = newExam?.data ?? newExam
+      if (!createdExam || !createdExam.id) {
+        throw new Error('Server returned an unexpected response while creating the exam')
+      }
       // Add course_name to the new exam for UI consistency
-      const course = courses.find(c => c.id === newExam.data.course_id.toString())
-      newExam.data.course_name = course?.name || 'Unknown Course'
-      setExams(prev => [newExam.data, ...prev])
+      const course = courses.find(c => c.id === createdExam.course_id?.toString())
+      createdExam.course_name = course?.name || 'Unknown Course'
+      setExams(prev => [createdExam, ...prev])
       setIsExamDialogOpen(false)
       setExamForm({ name: '', course_id: '', exam_date: '', total_marks: '100', duration_minutes: '60' })
     } catch (err) {
