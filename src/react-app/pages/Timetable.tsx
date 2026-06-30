@@ -1,7 +1,7 @@
 import React, { useState, useEffect, useRef } from 'react'
 import {
   Plus, Edit, Trash2, Loader2, AlertCircle, User, MapPin,
-  Printer, Download, BookOpen, Clock
+  Printer, Download, X, BookOpen, Clock
 } from 'lucide-react'
 import { Button } from '../components/ui/button'
 import {
@@ -120,6 +120,14 @@ function colorForCourse(courseId: string): Color {
   return courseColorMap.get(courseId)!
 }
 
+// Ensure database returns of HH:MM:SS are matched correctly against standard HH:MM grids
+function normalizeTime(t: string | undefined | null) {
+  if (!t) return ''
+  const parts = t.split(':')
+  if (parts.length >= 2) return `${parts[0].padStart(2, '0')}:${parts[1].padStart(2, '0')}`
+  return t
+}
+
 // ─────────────────────────── Component ───────────────────────────
 
 export default function Timetable() {
@@ -199,15 +207,27 @@ export default function Timetable() {
           id: String(e.id), course_id: String(e.course_id),
           teacher_id: String(e.teacher_id), period_id: String(e.period_id),
           day_of_week: (e.day_of_week || '').trim().toLowerCase(),
+          start_time: normalizeTime(e.start_time),
+          end_time: normalizeTime(e.end_time),
           is_accessible_track: !!e.is_accessible_track,
           accommodation_type: e.accommodation_type || 'none',
         })
 
-        setTimetableData((tableData.data  || []).map(normalize))
+        const tableArray = Array.isArray(tableData) ? tableData : (tableData.data || [])
+        setTimetableData(tableArray.map(normalize))
+        
         const coursesArray = Array.isArray(courseData) ? courseData : (courseData.data || [])
         setCourses(coursesArray.map((c: Course) => ({ ...c, id: String(c.id) })))
+        
         setTeachers((teacherData.data || []).map((t: Teacher) => ({ ...t, id: String(t.id) })))
-        setPeriods( (periodData.data  || []).map((p: TimePeriod) => ({ ...p, id: String(p.id) })))
+        
+        const periodsArray = Array.isArray(periodData) ? periodData : (periodData.data || [])
+        setPeriods(periodsArray.map((p: TimePeriod) => ({ 
+          ...p, 
+          id: String(p.id),
+          start_time: normalizeTime(p.start_time),
+          end_time: normalizeTime(p.end_time) 
+        })))
       } catch (err) {
         setError(err instanceof Error ? err.message : 'An unknown error occurred')
       } finally {
@@ -245,7 +265,6 @@ export default function Timetable() {
       const period  = periods.find(p => String(p.id) === String(formData.period_id))
       const teacher = teachers.find(t => String(t.id) === String(formData.teacher_id))
 
-      // 1. Map frontend formData to backend schema expectations
       const payload = {
         subject_id: parseInt(formData.course_id),
         teacher_id: formData.teacher_id && formData.teacher_id !== '__none' ? parseInt(formData.teacher_id) : null,
@@ -260,7 +279,6 @@ export default function Timetable() {
       const data = await res.json()
       if (!res.ok) throw new Error(data.detail || data.error || 'Failed to create entry')
 
-      // 2. Construct the new entry locally since backend only returns the ID
       setTimetableData(prev => [{
         id: String(data.data.id),
         course_id: formData.course_id,
@@ -301,7 +319,6 @@ export default function Timetable() {
       const period  = periods.find(p => String(p.id) === String(formData.period_id))
       const teacher = teachers.find(t => String(t.id) === String(formData.teacher_id))
 
-      // 1. Map frontend formData to backend schema expectations
       const payload = {
         subject_id: parseInt(formData.course_id),
         teacher_id: formData.teacher_id && formData.teacher_id !== '__none' ? parseInt(formData.teacher_id) : null,
@@ -316,7 +333,6 @@ export default function Timetable() {
       const data = await res.json()
       if (!res.ok) throw new Error(data.detail || data.error || 'Failed to update entry')
 
-      // 2. Construct updated entry manually
       const updated: TimetableEntry = {
         id: String(formData.id),
         course_id: formData.course_id,
@@ -366,7 +382,12 @@ export default function Timetable() {
       const res  = await api('/api/timetable/periods', { method: 'POST', body: JSON.stringify(periodFormData) })
       const data = await res.json()
       if (!res.ok) throw new Error(data.error || 'Failed to create period')
-      setPeriods(prev => [...prev, { ...data.data, id: String(data.data.id) }])
+      setPeriods(prev => [...prev, { 
+        ...data.data, 
+        id: String(data.data.id),
+        start_time: normalizeTime(data.data.start_time),
+        end_time: normalizeTime(data.data.end_time) 
+      }])
       setIsPeriodDialogOpen(false)
       setPeriodFormData({ period_name: '', start_time: '', end_time: '', is_break: false })
     } catch (err) {
@@ -402,16 +423,21 @@ export default function Timetable() {
 
     const rows = periods.map(period => {
       const cells = DAYS.map(day => {
-        const entry = timetableData.find(e =>
+        const entries = timetableData.filter(e =>
           e.day_of_week === day && e.start_time === period.start_time && e.end_time === period.end_time
         )
-        if (!entry) return '<td style="border:1px solid #ddd;padding:8px;"></td>'
-        if (entry.is_break) return `<td style="border:1px solid #ddd;padding:8px;background:#f5f5f5;text-align:center;color:#888;font-style:italic;">Break</td>`
-        return `<td style="border:1px solid #ddd;padding:8px;vertical-align:top;">
-          <strong>${entry.course_name}</strong><br/>
-          <span style="color:#666;font-size:12px;">${entry.teacher_name}</span><br/>
-          <span style="color:#999;font-size:11px;">Rm: ${entry.classroom || '—'}</span>
-        </td>`
+        if (period.is_break) return `<td style="border:1px solid #ddd;padding:8px;background:#f5f5f5;text-align:center;color:#888;font-style:italic;">Break</td>`
+        if (entries.length === 0) return '<td style="border:1px solid #ddd;padding:8px;"></td>'
+
+        const entryHtml = entries.map(entry => `
+          <div style="margin-bottom: ${entries.length > 1 ? '8px' : '0'}">
+            <strong>${entry.course_name}</strong> ${entry.class_section ? `<span style="color:#666;font-size:10px;">§ ${entry.class_section}</span>` : ''}<br/>
+            <span style="color:#666;font-size:12px;">${entry.teacher_name}</span><br/>
+            <span style="color:#999;font-size:11px;">Rm: ${entry.classroom || '—'}</span>
+          </div>
+        `).join('')
+
+        return `<td style="border:1px solid #ddd;padding:8px;vertical-align:top;">${entryHtml}</td>`
       }).join('')
 
       return `<tr>
@@ -575,7 +601,6 @@ export default function Timetable() {
           />
         </div>
 
-        {/* FIX: was rendered as  `if ({...` — now a proper conditional */}
         {formData.is_accessible_track && (
           <div className="space-y-1">
             <Label className="text-xs">Accommodation Type</Label>
@@ -799,9 +824,10 @@ export default function Timetable() {
 
                     {/* Day cells */}
                     {DAYS.map(day => {
-                      const entry = timetableData.find(e =>
+                      const entries = timetableData.filter(e =>
                         e.day_of_week === day && e.start_time === period.start_time && e.end_time === period.end_time
                       )
+                      
                       if (period.is_break) {
                         return (
                           <div key={day} className="border-r border-slate-100 last:border-r-0 bg-slate-50 flex items-center justify-center">
@@ -809,12 +835,13 @@ export default function Timetable() {
                           </div>
                         )
                       }
-                      if (!entry) {
+                      
+                      if (entries.length === 0) {
                         // Empty cell – clicking it pre-fills the form
                         return (
                           <div
                             key={day}
-                            className="border-r border-slate-100 last:border-r-0 group relative"
+                            className="border-r border-slate-100 last:border-r-0 group relative min-h-[60px] cursor-pointer"
                             onClick={() => {
                               if (!canManage) return
                               setFormData({ ...EMPTY_FORM, day_of_week: day, period_id: String(period.id) })
@@ -823,7 +850,7 @@ export default function Timetable() {
                             }}
                           >
                             {canManage && (
-                              <div className="absolute inset-0 flex items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity cursor-pointer">
+                              <div className="absolute inset-0 flex items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity">
                                 <span className="text-xs text-slate-400 flex items-center gap-1">
                                   <Plus size={12} /> Add class
                                 </span>
@@ -832,17 +859,23 @@ export default function Timetable() {
                           </div>
                         )
                       }
-                      const color = colorForCourse(entry.course_id)
+                      
                       return (
-                        <div key={day} className="border-r border-slate-100 last:border-r-0 p-1.5">
-                          <ClassCard
-                            entry={entry}
-                            colorStyle={COLOR_CELL[color]}
-                            labelStyle={COLOR_TEXT[color]}
-                            canManage={canManage}
-                            onEdit={() => handleOpenEditDialog(entry)}
-                            onDelete={() => handleDelete(entry.id)}
-                          />
+                        <div key={day} className="border-r border-slate-100 last:border-r-0 p-1.5 space-y-1.5 min-w-0">
+                          {entries.map(entry => {
+                            const color = colorForCourse(entry.course_id)
+                            return (
+                              <ClassCard
+                                key={entry.id}
+                                entry={entry}
+                                colorStyle={COLOR_CELL[color]}
+                                labelStyle={COLOR_TEXT[color]}
+                                canManage={canManage}
+                                onEdit={() => handleOpenEditDialog(entry)}
+                                onDelete={() => handleDelete(entry.id)}
+                              />
+                            )
+                          })}
                         </div>
                       )
                     })}
@@ -878,7 +911,7 @@ export default function Timetable() {
                 <div className="space-y-2">
                   {periods.map(period => {
                     const entries = timetableData.filter(e =>
-                      e.day_of_week === selectedDay && String(e.period_id) === String(period.id)
+                      e.day_of_week === selectedDay && e.start_time === period.start_time && e.end_time === period.end_time
                     )
                     return (
                       <div key={period.id} className="bg-white rounded-lg border border-slate-200 p-3">
@@ -895,7 +928,7 @@ export default function Timetable() {
                           entries.map((entry, idx) => {
                             const color = colorForCourse(entry.course_id)
                             return (
-                              <div key={entry.id} className={`rounded-md p-2.5 text-sm ${COLOR_CELL[color]} border-l-4`}>
+                              <div key={entry.id} className={`rounded-md p-2.5 text-sm ${COLOR_CELL[color]} border-l-4 mb-2 last:mb-0`}>
                                 <div className={`font-semibold mb-1 ${COLOR_TEXT[color]}`}>{entry.course_name}</div>
                                 <div className={`text-xs space-y-0.5 ${COLOR_TEXT[color]} opacity-80`}>
                                   <div className="flex items-center gap-1"><User size={11} /> {entry.teacher_name || 'N/A'}</div>
@@ -950,18 +983,26 @@ export default function Timetable() {
                     <span style={{ color: '#888', fontSize: 10 }}>{period.start_time}–{period.end_time}</span>
                   </td>
                   {DAYS.map(day => {
-                    const entry = timetableData.find(e =>
+                    const entries = timetableData.filter(e =>
                       e.day_of_week === day && e.start_time === period.start_time && e.end_time === period.end_time
                     )
+                    
                     if (period.is_break) return (
                       <td key={day} style={{ border: '1px solid #ddd', padding: '6px 8px', textAlign: 'center', color: '#aaa', fontStyle: 'italic', background: '#f8fafc' }}>Break</td>
                     )
-                    if (!entry) return <td key={day} style={{ border: '1px solid #ddd', padding: '6px 8px' }} />
+                    if (entries.length === 0) return <td key={day} style={{ border: '1px solid #ddd', padding: '6px 8px' }} />
+                    
                     return (
                       <td key={day} style={{ border: '1px solid #ddd', padding: '6px 8px', verticalAlign: 'top' }}>
-                        <strong>{entry.course_name}</strong><br />
-                        <span style={{ color: '#555', fontSize: 10 }}>{entry.teacher_name}</span><br />
-                        <span style={{ color: '#999', fontSize: 10 }}>Rm: {entry.classroom || '—'}</span>
+                        {entries.map(entry => (
+                          <div key={entry.id} style={{ marginBottom: entries.length > 1 ? '8px' : '0' }}>
+                            <strong>{entry.course_name}</strong>
+                            {entry.class_section && <span style={{fontSize: 9, color: '#666', marginLeft: 4}}>§ {entry.class_section}</span>}
+                            <br />
+                            <span style={{ color: '#555', fontSize: 10 }}>{entry.teacher_name}</span><br />
+                            <span style={{ color: '#999', fontSize: 10 }}>Rm: {entry.classroom || '—'}</span>
+                          </div>
+                        ))}
                       </td>
                     )
                   })}
@@ -1016,7 +1057,7 @@ function ClassCard({ entry, colorStyle, labelStyle, canManage, onEdit, onDelete 
   const [showDeleteAlert, setShowDeleteAlert] = useState(false)
 
   return (
-    <div className={`h-full rounded-r-md border-l-4 p-2 shadow-sm hover:shadow-md transition-shadow flex flex-col justify-between relative group ${colorStyle}`}>
+    <div className={`rounded-r-md border-l-4 p-2 shadow-sm hover:shadow-md transition-shadow flex flex-col justify-between relative group ${colorStyle}`}>
       <div>
         <h3 className={`font-bold text-xs leading-tight line-clamp-2 mb-1 ${labelStyle}`}>
           {entry.course_name}
@@ -1071,3 +1112,4 @@ function ClassCard({ entry, colorStyle, labelStyle, canManage, onEdit, onDelete 
     </div>
   )
 }
+
