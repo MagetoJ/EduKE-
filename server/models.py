@@ -12,6 +12,20 @@ class UserRole(str, enum.Enum):
     STAFF = "staff"
     STUDENT = "student"
     PARENT = "parent"
+    # Add frontend form functional matches:
+    CLASS_TEACHER = "class_teacher"
+    REGISTRAR = "registrar"
+    EXAM_OFFICER = "exam_officer"
+    HOD = "hod"
+    TIMETABLE_MANAGER = "timetable_manager"
+    TRANSPORT_MANAGER = "transport_manager"
+    BOARDING_MASTER = "boarding_master"
+    CBC_COORDINATOR = "cbc_coordinator"
+    HR_MANAGER = "hr_manager"
+    ADMISSION_OFFICER = "admission_officer"
+    NURSE = "nurse"
+    COUNSELOR = "counselor"
+    LIBRARIAN = "librarian"
 
 class Permission(str, enum.Enum):
     """Feature-level permissions for RBAC (Expanded for EduKE)"""

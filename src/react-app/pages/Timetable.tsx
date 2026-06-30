@@ -1,311 +1,269 @@
-
-import React, { useState, useEffect } from 'react'
-import { Plus, Edit, Trash2, Loader2, AlertCircle, User, MoreHorizontal, MapPin, ChevronDown, Accessibility } from 'lucide-react'
+import React, { useState, useEffect, useRef } from 'react'
+import {
+  Plus, Edit, Trash2, Loader2, AlertCircle, User, MapPin,
+  Printer, Download, X, BookOpen, Clock
+} from 'lucide-react'
 import { Button } from '../components/ui/button'
-import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle, DialogTrigger } from '../components/ui/dialog'
+import {
+  Dialog, DialogContent, DialogDescription,
+  DialogFooter, DialogHeader, DialogTitle, DialogTrigger
+} from '../components/ui/dialog'
 import { Label } from '../components/ui/label'
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '../components/ui/select'
+import {
+  Select, SelectContent, SelectItem,
+  SelectTrigger, SelectValue
+} from '../components/ui/select'
 import { useAuth, useApi } from '../contexts/AuthContext'
 import { Input } from '../components/ui/input'
 import {
-  AlertDialog,
-  AlertDialogAction,
-  AlertDialogCancel,
-  AlertDialogContent,
-  AlertDialogDescription,
-  AlertDialogFooter,
-  AlertDialogHeader,
-  AlertDialogTitle,
+  AlertDialog, AlertDialogAction, AlertDialogCancel,
+  AlertDialogContent, AlertDialogDescription,
+  AlertDialogFooter, AlertDialogHeader, AlertDialogTitle,
   AlertDialogTrigger,
-} from "../components/ui/alert-dialog"
+} from '../components/ui/alert-dialog'
+
+// ─────────────────────────── Types ───────────────────────────────
 
 type TimetableEntry = {
-  id: string;
-  day_of_week: string;
-  grade: string;
-  class_section?: string;
-  classroom: string;
-  course_name: string;
-  teacher_name: string;
-  period_name: string;
-  start_time: string;
-  end_time: string;
-  is_break: boolean;
-  course_id: string;
-  teacher_id: string;
-  period_id: string;
-  // Special Needs Tracking Properties
-  is_accessible_track?: boolean;
-  accommodation_type?: string;
-};
+  id: string
+  day_of_week: string
+  grade: string
+  class_section?: string
+  classroom: string
+  course_name: string
+  teacher_name: string
+  period_name: string
+  start_time: string
+  end_time: string
+  is_break: boolean
+  course_id: string
+  teacher_id: string
+  period_id: string
+  is_accessible_track?: boolean
+  accommodation_type?: string
+}
 
-type Course = {
-  id: string;
-  name: string;
-};
-
+type Course  = { id: string; name: string }
+type Teacher = { id: string; name: string }
 type TimePeriod = {
-  id: string;
-  name: string;
-  start_time: string;
-  end_time: string;
-};
-
-type Teacher = {
-  id: string;
-  name: string;
-};
+  id: string
+  name: string
+  start_time: string
+  end_time: string
+  is_break: boolean
+}
 
 type FormData = {
-  id?: string;
-  course_id: string;
-  teacher_id: string;
-  period_id: string;
-  day_of_week: string;
-  grade: string;
-  class_section: string;
-  classroom: string;
-  // Special Needs Form Mappings
-  is_accessible_track: boolean;
-  accommodation_type: string;
-};
+  id?: string
+  course_id: string
+  teacher_id: string
+  period_id: string
+  day_of_week: string
+  grade: string
+  class_section: string
+  classroom: string
+  is_accessible_track: boolean
+  accommodation_type: string
+}
 
 type PeriodFormData = {
-  period_name: string;
-  start_time: string;
-  end_time: string;
-  is_break: boolean;
-};
+  period_name: string
+  start_time: string
+  end_time: string
+  is_break: boolean
+}
+
+// ─────────────────────────── Constants ───────────────────────────
 
 const EMPTY_FORM: FormData = {
-  course_id: '',
-  teacher_id: '',
-  period_id: '',
-  day_of_week: 'monday',
-  grade: '',
-  class_section: '',
-  classroom: '',
-  is_accessible_track: false,
-  accommodation_type: 'none'
-};
+  course_id: '', teacher_id: '', period_id: '',
+  day_of_week: 'monday', grade: '', class_section: '',
+  classroom: '', is_accessible_track: false, accommodation_type: 'none'
+}
 
-const DAYS_OF_WEEK = ['monday', 'tuesday', 'wednesday', 'thursday', 'friday', 'saturday', 'sunday'];
+const DAYS = ['monday', 'tuesday', 'wednesday', 'thursday', 'friday']
+const ALL_DAYS = [...DAYS, 'saturday', 'sunday']
 
 const CURRICULUM_LEVELS: Record<string, string[]> = {
-  cbc: [ 'PP1', 'PP2', 'Grade 1', 'Grade 2', 'Grade 3', 'Grade 4', 'Grade 5', 'Grade 6', 'Grade 7', 'Grade 8', 'Grade 9', 'Grade 10', 'Grade 11', 'Grade 12' ],
-  '844': [ 'Grade 1', 'Grade 2', 'Grade 3', 'Grade 4', 'Grade 5', 'Grade 6', 'Grade 7', 'Grade 8', 'Form 1', 'Form 2', 'Form 3', 'Form 4' ],
-  british: [ 'Year 1', 'Year 2', 'Year 3', 'Year 4', 'Year 5', 'Year 6', 'Year 7', 'Year 8', 'Year 9', 'Year 10', 'Year 11', 'Year 12', 'Year 13' ],
-  american: [ 'Kindergarten', 'Grade 1', 'Grade 2', 'Grade 3', 'Grade 4', 'Grade 5', 'Grade 6', 'Grade 7', 'Grade 8', 'Grade 9', 'Grade 10', 'Grade 11', 'Grade 12' ],
-  ib: [ 'PYP 1', 'PYP 2', 'PYP 3', 'PYP 4', 'PYP 5', 'MYP 1', 'MYP 2', 'MYP 3', 'MYP 4', 'MYP 5', 'DP 1', 'DP 2' ]
+  cbc:      ['PP1','PP2','Grade 1','Grade 2','Grade 3','Grade 4','Grade 5','Grade 6','Grade 7','Grade 8','Grade 9','Grade 10','Grade 11','Grade 12'],
+  '844':    ['Grade 1','Grade 2','Grade 3','Grade 4','Grade 5','Grade 6','Grade 7','Grade 8','Form 1','Form 2','Form 3','Form 4'],
+  british:  ['Year 1','Year 2','Year 3','Year 4','Year 5','Year 6','Year 7','Year 8','Year 9','Year 10','Year 11','Year 12','Year 13'],
+  american: ['Kindergarten','Grade 1','Grade 2','Grade 3','Grade 4','Grade 5','Grade 6','Grade 7','Grade 8','Grade 9','Grade 10','Grade 11','Grade 12'],
+  ib:       ['PYP 1','PYP 2','PYP 3','PYP 4','PYP 5','MYP 1','MYP 2','MYP 3','MYP 4','MYP 5','DP 1','DP 2'],
 }
 
-const colorStyles = {
-  sky: 'bg-sky-200 border-l-sky-500 text-sky-900',
-  orange: 'bg-orange-200 border-l-orange-500 text-orange-900',
-  green: 'bg-green-200 border-l-green-500 text-green-900',
-  purple: 'bg-purple-200 border-l-purple-500 text-purple-900',
-  red: 'bg-red-300 border-l-red-500 text-red-900',
+const COLORS = ['sky', 'orange', 'green', 'purple', 'rose'] as const
+type Color = typeof COLORS[number]
+
+const COLOR_CELL: Record<Color, string> = {
+  sky:    'bg-sky-100 border-l-sky-500 text-sky-900',
+  orange: 'bg-orange-100 border-l-orange-500 text-orange-900',
+  green:  'bg-green-100 border-l-green-500 text-green-900',
+  purple: 'bg-purple-100 border-l-purple-500 text-purple-900',
+  rose:   'bg-rose-100 border-l-rose-500 text-rose-900',
 }
 
-const labelColorStyles = {
-  sky: 'text-sky-700',
-  orange: 'text-orange-800',
-  green: 'text-green-800',
-  purple: 'text-purple-800',
-  red: 'text-red-900',
+const COLOR_TEXT: Record<Color, string> = {
+  sky:    'text-sky-700',
+  orange: 'text-orange-700',
+  green:  'text-green-700',
+  purple: 'text-purple-700',
+  rose:   'text-rose-700',
 }
+
+// Map course id → stable color so color doesn't shift on re-render
+const courseColorMap = new Map<string, Color>()
+function colorForCourse(courseId: string): Color {
+  if (!courseColorMap.has(courseId)) {
+    courseColorMap.set(courseId, COLORS[courseColorMap.size % COLORS.length])
+  }
+  return courseColorMap.get(courseId)!
+}
+
+// ─────────────────────────── Component ───────────────────────────
 
 export default function Timetable() {
   const { user } = useAuth() as any
   const api = useApi()
+  const printRef = useRef<HTMLDivElement>(null)
 
   const [timetableData, setTimetableData] = useState<TimetableEntry[]>([])
-  const [courses, setCourses] = useState<Course[]>([])
+  const [courses,  setCourses]  = useState<Course[]>([])
   const [teachers, setTeachers] = useState<Teacher[]>([])
-  const [periods, setPeriods] = useState<TimePeriod[]>([])
+  const [periods,  setPeriods]  = useState<TimePeriod[]>([])
 
-  const [isLoading, setIsLoading] = useState(true)
-  const [error, setError] = useState<string | null>(null)
-
-  const [isAddDialogOpen, setIsAddDialogOpen] = useState(false)
-  const [isEditDialogOpen, setIsEditDialogOpen] = useState(false)
-  const [isAddPeriodDialogOpen, setIsAddPeriodDialogOpen] = useState(false)
-
-  const [formData, setFormData] = useState<FormData>(EMPTY_FORM)
-  const [periodFormData, setPeriodFormData] = useState<PeriodFormData>({
-    period_name: '',
-    start_time: '',
-    end_time: '',
-    is_break: false
-  })
+  const [isLoading,  setIsLoading]  = useState(true)
+  const [error,      setError]      = useState<string | null>(null)
+  const [formError,  setFormError]  = useState<string | null>(null)
   const [isSubmitting, setIsSubmitting] = useState(false)
-  const [formError, setFormError] = useState<string | null>(null)
-  const [selectedDay, setSelectedDay] = useState('monday')
-  
-  const [selectedGrade, setSelectedGrade] = useState('')
-  const [selectedSection, setSelectedSection] = useState('')
-  const [gradeLevels, setGradeLevels] = useState<string[]>([])
 
+  const [isAddDialogOpen,    setIsAddDialogOpen]    = useState(false)
+  const [isEditDialogOpen,   setIsEditDialogOpen]   = useState(false)
+  const [isPeriodDialogOpen, setIsPeriodDialogOpen] = useState(false)
+
+  const [formData,       setFormData]       = useState<FormData>(EMPTY_FORM)
+  const [periodFormData, setPeriodFormData] = useState<PeriodFormData>({ period_name: '', start_time: '', end_time: '', is_break: false })
+
+  const [selectedDay,     setSelectedDay]     = useState('monday')
+  const [selectedGrade,   setSelectedGrade]   = useState('')
+  const [selectedSection, setSelectedSection] = useState('')
+  const [gradeLevels,     setGradeLevels]     = useState<string[]>([])
+
+  // Derive role helpers
+  const canManage = ['admin', 'super_admin', 'timetable_manager', 'registrar', 'hod'].includes(user?.role)
+
+  const headerTitle = user?.role === 'student' ? 'MY CLASS SCHEDULE'
+    : user?.role === 'parent' ? "CHILDREN'S SCHEDULE"
+    : 'ACADEMIC TIMETABLE'
+
+  // ── Curriculum levels ────────────────────────────────────────
   useEffect(() => {
-    if (user?.schoolCurriculum) {
-      const levels = CURRICULUM_LEVELS[user.schoolCurriculum] ?? CURRICULUM_LEVELS.cbc
-      setGradeLevels(levels)
-    } else {
-      setGradeLevels(CURRICULUM_LEVELS.cbc)
-    }
+    const key = user?.schoolCurriculum ?? 'cbc'
+    setGradeLevels(CURRICULUM_LEVELS[key] ?? CURRICULUM_LEVELS.cbc)
   }, [user?.schoolCurriculum])
 
+  // ── Data load ────────────────────────────────────────────────
   useEffect(() => {
-    const loadData = async () => {
-      if (!user) {
-        setError('Please log in to access the timetable')
-        setIsLoading(false)
-        return
-      }
+    if (!user) { setError('Please log in'); setIsLoading(false); return }
 
-      setIsLoading(true)
-      setError(null)
+    const load = async () => {
+      setIsLoading(true); setError(null)
       try {
-        let timetableUrl = '/api/timetable'
-        const queryParams = []
-        if (selectedGrade && selectedGrade !== 'all-grades') queryParams.push(`grade=${encodeURIComponent(selectedGrade)}`)
-        if (selectedSection) queryParams.push(`class_section=${encodeURIComponent(selectedSection)}`)
-        
-        if (queryParams.length > 0) {
-          timetableUrl += `?${queryParams.join('&')}`
-        }
+        const params: string[] = []
+        if (selectedGrade && selectedGrade !== 'all-grades') params.push(`grade=${encodeURIComponent(selectedGrade)}`)
+        if (selectedSection) params.push(`class_section=${encodeURIComponent(selectedSection)}`)
+        const qs = params.length ? `?${params.join('&')}` : ''
 
         const [tableRes, courseRes, periodRes] = await Promise.all([
-          api(timetableUrl),
+          api(`/api/timetable${qs}`),
           api('/api/courses'),
-          api('/api/timetable/periods')
+          api('/api/timetable/periods'),
         ])
 
-        if (!tableRes.ok) {
-          const errorData = await tableRes.json().catch(() => ({}));
-          throw new Error(errorData.error || 'Failed to fetch timetable');
-        }
-        if (!courseRes.ok) {
-          const errorData = await courseRes.json().catch(() => ({}));
-          throw new Error(errorData.error || 'Failed to fetch courses');
-        }
-        if (!periodRes.ok) {
-          const errorData = await periodRes.json().catch(() => ({}));
-          throw new Error(errorData.error || 'Failed to fetch time periods');
-        }
+        if (!tableRes.ok)  throw new Error((await tableRes.json().catch(() => ({}))).error  || 'Failed to fetch timetable')
+        if (!courseRes.ok) throw new Error((await courseRes.json().catch(() => ({}))).error || 'Failed to fetch courses')
+        if (!periodRes.ok) throw new Error((await periodRes.json().catch(() => ({}))).error || 'Failed to fetch periods')
 
-        const tableData = await tableRes.json()
+        const tableData  = await tableRes.json()
         const courseData = await courseRes.json()
         const periodData = await periodRes.json()
 
         let teacherData = { data: [] }
         try {
-          const teacherRes = await api('/api/teachers')
-          if (teacherRes.ok) {
-            teacherData = await teacherRes.json()
-          } else {
-            console.warn('Teachers endpoint returned:', teacherRes.status)
-          }
-        } catch (err) {
-          console.warn('Failed to fetch teachers:', err)
-        }
+          const tr = await api('/api/teachers')
+          if (tr.ok) teacherData = await tr.json()
+        } catch { /* teachers optional */ }
 
-        const normalizedTimetable = (tableData.data || []).map((entry: TimetableEntry) => ({
-          ...entry,
-          id: String(entry.id),
-          course_id: String(entry.course_id),
-          teacher_id: String(entry.teacher_id),
-          period_id: String(entry.period_id),
-          day_of_week: (entry.day_of_week || '').trim().toLowerCase(),
-          is_accessible_track: !!entry.is_accessible_track,
-          accommodation_type: entry.accommodation_type || 'none'
-        }))
+        const normalize = (e: TimetableEntry) => ({
+          ...e,
+          id: String(e.id), course_id: String(e.course_id),
+          teacher_id: String(e.teacher_id), period_id: String(e.period_id),
+          day_of_week: (e.day_of_week || '').trim().toLowerCase(),
+          is_accessible_track: !!e.is_accessible_track,
+          accommodation_type: e.accommodation_type || 'none',
+        })
 
-        setTimetableData(normalizedTimetable)
-        setCourses((courseData.data || []).map((c: Course) => ({ ...c, id: String(c.id) })))
+        setTimetableData((tableData.data  || []).map(normalize))
+        setCourses( (courseData.data  || []).map((c: Course)  => ({ ...c, id: String(c.id) })))
         setTeachers((teacherData.data || []).map((t: Teacher) => ({ ...t, id: String(t.id) })))
-        setPeriods((periodData.data || []).map((p: TimePeriod) => ({ ...p, id: String(p.id) })))
-
+        setPeriods( (periodData.data  || []).map((p: TimePeriod) => ({ ...p, id: String(p.id) })))
       } catch (err) {
         setError(err instanceof Error ? err.message : 'An unknown error occurred')
       } finally {
         setIsLoading(false)
       }
     }
-    loadData()
+    load()
   }, [api, user, selectedGrade, selectedSection])
 
-  const handleFormChange = (field: keyof FormData, value: string | boolean) => {
+  // ── Form helpers ─────────────────────────────────────────────
+  const handleFormChange = (field: keyof FormData, value: string | boolean) =>
     setFormData(prev => ({ ...prev, [field]: value }))
-  }
 
-  const handlePeriodFormChange = (field: keyof PeriodFormData, value: string | boolean) => {
+  const handlePeriodChange = (field: keyof PeriodFormData, value: string | boolean) =>
     setPeriodFormData(prev => ({ ...prev, [field]: value }))
+
+  const validateMainForm = (): string | null => {
+    if (!formData.course_id)  return 'Please select a course'
+    if (!formData.teacher_id) return 'Please select a teacher'
+    if (!formData.period_id)  return 'Please select a time period'
+    if (!formData.day_of_week)return 'Please select a day'
+    if (!formData.grade)      return 'Please select a grade'
+    return null
   }
 
+  // ── CRUD operations ──────────────────────────────────────────
   const handleAddSubmit = async (e: React.FormEvent) => {
     e.preventDefault()
-    setIsSubmitting(true)
-    setFormError(null)
-
-    if (!formData.course_id) {
-      setFormError('Please select a course')
-      setIsSubmitting(false)
-      return
-    }
-    if (!formData.teacher_id) {
-      setFormError('Please select a teacher')
-      setIsSubmitting(false)
-      return
-    }
-    if (!formData.period_id) {
-      setFormError('Please select a period')
-      setIsSubmitting(false)
-      return
-    }
-    if (!formData.day_of_week) {
-      setFormError('Please select a day')
-      setIsSubmitting(false)
-      return
-    }
-    if (!formData.grade) {
-      setFormError('Please enter a grade')
-      setIsSubmitting(false)
-      return
-    }
-
+    const err = validateMainForm()
+    if (err) { setFormError(err); return }
+    setIsSubmitting(true); setFormError(null)
     try {
-      const res = await api('/api/timetable', {
-        method: 'POST',
-        body: JSON.stringify(formData),
-      })
-
+      const res  = await api('/api/timetable', { method: 'POST', body: JSON.stringify(formData) })
       const data = await res.json()
       if (!res.ok) throw new Error(data.error || 'Failed to create entry')
 
-      const course = courses.find(c => String(c.id) === String(data.data.course_id))
-      const period = periods.find(p => String(p.id) === String(data.data.period_id))
+      const course  = courses.find(c => String(c.id) === String(data.data.course_id))
+      const period  = periods.find(p => String(p.id) === String(data.data.period_id))
       const teacher = teachers.find(t => String(t.id) === String(data.data.teacher_id))
 
-      const newEntry: TimetableEntry = {
+      setTimetableData(prev => [{
         ...data.data,
         id: String(data.data.id),
-        course_id: String(data.data.course_id),
+        course_id:  String(data.data.course_id),
         teacher_id: String(data.data.teacher_id),
-        period_id: String(data.data.period_id),
-        course_name: course?.name || 'Unknown',
-        teacher_name: teacher?.name || 'N/A',
-        period_name: period?.name || 'Unknown',
-        start_time: period?.start_time || '',
-        end_time: period?.end_time || '',
+        period_id:  String(data.data.period_id),
+        course_name:  course?.name   || 'Unknown',
+        teacher_name: teacher?.name  || 'N/A',
+        period_name:  period?.name   || '',
+        start_time:   period?.start_time || '',
+        end_time:     period?.end_time   || '',
         is_accessible_track: !!data.data.is_accessible_track,
-        accommodation_type: data.data.accommodation_type || 'none'
-      }
+        accommodation_type:  data.data.accommodation_type || 'none',
+      }, ...prev])
 
-      setTimetableData(prev => [newEntry, ...prev])
       setIsAddDialogOpen(false)
       setFormData(EMPTY_FORM)
-
     } catch (err) {
       setFormError(err instanceof Error ? err.message : 'Failed to save')
     } finally {
@@ -313,45 +271,68 @@ export default function Timetable() {
     }
   }
 
+  const handleEditSubmit = async (e: React.FormEvent) => {
+    e.preventDefault()
+    if (!formData.id) { setFormError('No ID – cannot update.'); return }
+    const err = validateMainForm()
+    if (err) { setFormError(err); return }
+    setIsSubmitting(true); setFormError(null)
+    try {
+      const res  = await api(`/api/timetable/${formData.id}`, { method: 'PUT', body: JSON.stringify(formData) })
+      const data = await res.json()
+      if (!res.ok) throw new Error(data.error || 'Failed to update entry')
+
+      const course  = courses.find(c => String(c.id) === String(data.data.course_id))
+      const period  = periods.find(p => String(p.id) === String(data.data.period_id))
+      const teacher = teachers.find(t => String(t.id) === String(data.data.teacher_id))
+
+      const updated: TimetableEntry = {
+        ...data.data,
+        id: String(data.data.id),
+        course_id:  String(data.data.course_id),
+        teacher_id: String(data.data.teacher_id),
+        period_id:  String(data.data.period_id),
+        course_name:  course?.name   || 'Unknown',
+        teacher_name: teacher?.name  || 'N/A',
+        period_name:  period?.name   || '',
+        start_time:   period?.start_time || '',
+        end_time:     period?.end_time   || '',
+        is_accessible_track: !!data.data.is_accessible_track,
+        accommodation_type:  data.data.accommodation_type || 'none',
+      }
+      setTimetableData(prev => prev.map(item => item.id === updated.id ? updated : item))
+      setIsEditDialogOpen(false)
+      setFormData(EMPTY_FORM)
+    } catch (err) {
+      setFormError(err instanceof Error ? err.message : 'Failed to save')
+    } finally {
+      setIsSubmitting(false)
+    }
+  }
+
+  const handleDelete = async (id: string) => {
+    try {
+      const res = await api(`/api/timetable/${id}`, { method: 'DELETE' })
+      if (!res.ok) throw new Error((await res.json()).error || 'Delete failed')
+      setTimetableData(prev => prev.filter(e => e.id !== id))
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Delete failed')
+    }
+  }
+
   const handleAddPeriodSubmit = async (e: React.FormEvent) => {
     e.preventDefault()
-    setIsSubmitting(true)
-    setFormError(null)
-
-    if (!periodFormData.period_name) {
-      setFormError('Please enter period name')
-      setIsSubmitting(false)
-      return
-    }
-    if (!periodFormData.start_time) {
-      setFormError('Please enter start time')
-      setIsSubmitting(false)
-      return
-    }
-    if (!periodFormData.end_time) {
-      setFormError('Please enter end time')
-      setIsSubmitting(false)
-      return
-    }
-
+    if (!periodFormData.period_name) { setFormError('Period name is required'); return }
+    if (!periodFormData.start_time)  { setFormError('Start time is required');  return }
+    if (!periodFormData.end_time)    { setFormError('End time is required');     return }
+    setIsSubmitting(true); setFormError(null)
     try {
-      const res = await api('/api/timetable/periods', {
-        method: 'POST',
-        body: JSON.stringify(periodFormData),
-      })
-
+      const res  = await api('/api/timetable/periods', { method: 'POST', body: JSON.stringify(periodFormData) })
       const data = await res.json()
       if (!res.ok) throw new Error(data.error || 'Failed to create period')
-
-      setPeriods(prev => [...prev, data.data])
-      setIsAddPeriodDialogOpen(false)
-      setPeriodFormData({
-        period_name: '',
-        start_time: '',
-        end_time: '',
-        is_break: false
-      })
-
+      setPeriods(prev => [...prev, { ...data.data, id: String(data.data.id) }])
+      setIsPeriodDialogOpen(false)
+      setPeriodFormData({ period_name: '', start_time: '', end_time: '', is_break: false })
     } catch (err) {
       setFormError(err instanceof Error ? err.message : 'Failed to save')
     } finally {
@@ -363,465 +344,465 @@ export default function Timetable() {
     setFormError(null)
     setFormData({
       id: entry.id,
-      course_id: entry.course_id,
-      teacher_id: entry.teacher_id,
-      period_id: entry.period_id,
-      day_of_week: entry.day_of_week,
-      grade: entry.grade,
-      class_section: entry.class_section || '',
+      course_id: entry.course_id, teacher_id: entry.teacher_id,
+      period_id: entry.period_id, day_of_week: entry.day_of_week,
+      grade: entry.grade, class_section: entry.class_section || '',
       classroom: entry.classroom,
       is_accessible_track: !!entry.is_accessible_track,
-      accommodation_type: entry.accommodation_type || 'none'
+      accommodation_type: entry.accommodation_type || 'none',
     })
     setIsEditDialogOpen(true)
   }
 
-  const handleEditSubmit = async (e: React.FormEvent) => {
-    e.preventDefault()
-    setIsSubmitting(true)
-    setFormError(null)
-
-    if (!formData.id) {
-      setFormError('No ID found, cannot update.')
-      return;
-    }
-
-    try {
-      const res = await api(`/api/timetable/${formData.id}`, {
-        method: 'PUT',
-        body: JSON.stringify(formData),
-      })
-
-      const data = await res.json()
-      if (!res.ok) throw new Error(data.error || 'Failed to update entry')
-
-      const course = courses.find(c => String(c.id) === String(data.data.course_id))
-      const period = periods.find(p => String(p.id) === String(data.data.period_id))
-      const teacher = teachers.find(t => String(t.id) === String(data.data.teacher_id))
-
-      const updatedEntry: TimetableEntry = {
-        ...data.data,
-        id: String(data.data.id),
-        course_id: String(data.data.course_id),
-        teacher_id: String(data.data.teacher_id),
-        period_id: String(data.data.period_id),
-        course_name: course?.name || 'Unknown',
-        teacher_name: teacher?.name || 'N/A',
-        period_name: period?.name || 'Unknown',
-        start_time: period?.start_time || '',
-        end_time: period?.end_time || '',
-        is_accessible_track: !!data.data.is_accessible_track,
-        accommodation_type: data.data.accommodation_type || 'none'
-      }
-
-      setTimetableData(prev => prev.map(item => item.id === updatedEntry.id ? updatedEntry : item))
-      setIsEditDialogOpen(false)
-      setFormData(EMPTY_FORM)
-
-    } catch (err) {
-      setFormError(err instanceof Error ? err.message : 'Failed to save')
-    } finally {
-      setIsSubmitting(false)
-    }
+  // ── Print / Download ──────────────────────────────────────────
+  const handlePrint = () => {
+    window.print()
   }
 
-  const handleDelete = async (id: string) => {
-    try {
-      const res = await api(`/api/timetable/${id}`, {
-        method: 'DELETE',
-      })
-      if (!res.ok) {
-        const data = await res.json()
-        throw new Error(data.error || 'Failed to delete entry')
-      }
-      setTimetableData(prev => prev.filter(entry => entry.id !== id))
-    } catch (err) {
-      setError(err instanceof Error ? err.message : 'Delete failed')
-    }
+  const handleDownloadHTML = () => {
+    const schoolName = user?.schoolName || 'School'
+    const gradeLabel = selectedGrade && selectedGrade !== 'all-grades' ? ` — ${selectedGrade}` : ''
+    const title = `${schoolName} Timetable${gradeLabel}`
+
+    const rows = periods.map(period => {
+      const cells = DAYS.map(day => {
+        const entry = timetableData.find(e =>
+          e.day_of_week === day && String(e.period_id) === String(period.id)
+        )
+        if (!entry) return '<td style="border:1px solid #ddd;padding:8px;"></td>'
+        if (entry.is_break) return `<td style="border:1px solid #ddd;padding:8px;background:#f5f5f5;text-align:center;color:#888;font-style:italic;">Break</td>`
+        return `<td style="border:1px solid #ddd;padding:8px;vertical-align:top;">
+          <strong>${entry.course_name}</strong><br/>
+          <span style="color:#666;font-size:12px;">${entry.teacher_name}</span><br/>
+          <span style="color:#999;font-size:11px;">Rm: ${entry.classroom || '—'}</span>
+        </td>`
+      }).join('')
+
+      return `<tr>
+        <td style="border:1px solid #ddd;padding:8px;white-space:nowrap;font-weight:600;color:#444;">
+          ${period.name}<br/><span style="font-size:11px;color:#999;">${period.start_time}–${period.end_time}</span>
+        </td>
+        ${cells}
+      </tr>`
+    }).join('')
+
+    const html = `<!DOCTYPE html>
+<html>
+<head>
+  <meta charset="UTF-8"/>
+  <title>${title}</title>
+  <style>
+    body { font-family: Arial, sans-serif; padding: 24px; color: #222; }
+    h1   { font-size: 20px; margin-bottom: 4px; }
+    p    { color: #666; font-size: 13px; margin-top: 0; margin-bottom: 16px; }
+    table { border-collapse: collapse; width: 100%; }
+    th   { background: #1e293b; color: #fff; padding: 10px 8px; text-align: center; }
+    @media print { body { padding: 0; } }
+  </style>
+</head>
+<body>
+  <h1>${title}</h1>
+  <p>Generated on ${new Date().toLocaleDateString('en-KE', { dateStyle: 'long' })}</p>
+  <table>
+    <thead>
+      <tr>
+        <th>Period</th>
+        ${DAYS.map(d => `<th>${d.charAt(0).toUpperCase() + d.slice(1)}</th>`).join('')}
+      </tr>
+    </thead>
+    <tbody>${rows}</tbody>
+  </table>
+</body>
+</html>`
+
+    const blob = new Blob([html], { type: 'text/html' })
+    const url  = URL.createObjectURL(blob)
+    const a    = document.createElement('a')
+    a.href     = url
+    a.download = `timetable-${Date.now()}.html`
+    a.click()
+    URL.revokeObjectURL(url)
   }
 
-  const renderLoading = () => (
-    <div className="flex items-center justify-center p-8 text-gray-600">
-      <Loader2 className="w-6 h-6 animate-spin mr-2" />
-      Loading timetable...
+  // ── Render helpers ────────────────────────────────────────────
+  const renderError = (msg: string | null) => msg && (
+    <div className="flex items-center gap-2 text-sm text-red-600 p-3 bg-red-50 rounded-md mb-4">
+      <AlertCircle className="w-4 h-4 flex-shrink-0" /> {msg}
     </div>
   )
 
-  const renderError = (err: string | null) => err && (
-    <div className="flex items-center gap-2 text-sm text-red-600 p-3 bg-red-50 rounded-md">
-      <AlertCircle className="w-4 h-4" /> {err}
+  const renderFormError = (msg: string | null) => msg && (
+    <div className="flex items-center gap-2 text-sm text-red-600 mt-1">
+      <AlertCircle className="w-4 h-4 flex-shrink-0" /> {msg}
     </div>
   )
 
-  const renderFormError = (err: string | null) => err && (
-    <div className="flex items-center gap-2 text-sm text-red-600 mt-2">
-      <AlertCircle className="w-4 h-4" /> {err}
+  // ── Shared entry form fields (used by both Add and Edit dialogs) ─
+  const EntryFormFields = () => (
+    <div className="space-y-3">
+      {/* Day + Period side-by-side */}
+      <div className="grid grid-cols-2 gap-3">
+        <div className="space-y-1">
+          <Label>Day</Label>
+          <Select value={formData.day_of_week} onValueChange={v => handleFormChange('day_of_week', v)}>
+            <SelectTrigger><SelectValue /></SelectTrigger>
+            <SelectContent>
+              {ALL_DAYS.map(d => <SelectItem key={d} value={d}>{d.charAt(0).toUpperCase() + d.slice(1)}</SelectItem>)}
+            </SelectContent>
+          </Select>
+        </div>
+        <div className="space-y-1">
+          <Label>Time Period</Label>
+          <Select value={formData.period_id} onValueChange={v => handleFormChange('period_id', v)}>
+            <SelectTrigger><SelectValue placeholder="Select period" /></SelectTrigger>
+            <SelectContent>
+              {periods.filter(p => !p.is_break).map(p => (
+                <SelectItem key={p.id} value={String(p.id)}>
+                  {p.name} ({p.start_time}–{p.end_time})
+                </SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
+        </div>
+      </div>
+
+      {/* Course */}
+      <div className="space-y-1">
+        <Label>Course / Subject</Label>
+        <Select value={formData.course_id} onValueChange={v => handleFormChange('course_id', v)}>
+          <SelectTrigger><SelectValue placeholder="Select course" /></SelectTrigger>
+          <SelectContent>
+            {courses.map(c => <SelectItem key={c.id} value={String(c.id)}>{c.name}</SelectItem>)}
+          </SelectContent>
+        </Select>
+      </div>
+
+      {/* Teacher */}
+      <div className="space-y-1">
+        <Label>Teacher</Label>
+        <Select value={formData.teacher_id} onValueChange={v => handleFormChange('teacher_id', v)}>
+          <SelectTrigger>
+            <SelectValue placeholder={teachers.length === 0 ? 'No teachers available' : 'Select teacher'} />
+          </SelectTrigger>
+          <SelectContent>
+            {teachers.length === 0
+              ? <SelectItem disabled value="__none">No teachers available</SelectItem>
+              : teachers.map(t => <SelectItem key={t.id} value={String(t.id)}>{t.name}</SelectItem>)
+            }
+          </SelectContent>
+        </Select>
+      </div>
+
+      {/* Grade + Section */}
+      <div className="grid grid-cols-2 gap-3">
+        <div className="space-y-1">
+          <Label>Grade</Label>
+          <Select value={formData.grade} onValueChange={v => handleFormChange('grade', v)}>
+            <SelectTrigger><SelectValue placeholder="Select grade" /></SelectTrigger>
+            <SelectContent>
+              {gradeLevels.map(g => <SelectItem key={g} value={g}>{g}</SelectItem>)}
+            </SelectContent>
+          </Select>
+        </div>
+        <div className="space-y-1">
+          <Label>Section / Stream</Label>
+          <Input
+            value={formData.class_section}
+            onChange={e => handleFormChange('class_section', e.target.value)}
+            placeholder="e.g., A, B, North"
+          />
+        </div>
+      </div>
+
+      {/* Classroom */}
+      <div className="space-y-1">
+        <Label>Room</Label>
+        <Input
+          value={formData.classroom}
+          onChange={e => handleFormChange('classroom', e.target.value)}
+          placeholder="e.g., Room 101"
+        />
+      </div>
+
+      {/* Special needs */}
+      <div className="rounded-lg border border-slate-200 bg-slate-50 p-3 space-y-2">
+        <div className="flex items-center justify-between">
+          <Label className="text-xs font-semibold cursor-pointer" htmlFor="accessible_track">
+            Special Education / Adaptive Session
+          </Label>
+          <input
+            id="accessible_track"
+            type="checkbox"
+            className="h-4 w-4 accent-emerald-600 cursor-pointer"
+            checked={formData.is_accessible_track}
+            onChange={e => handleFormChange('is_accessible_track', e.target.checked)}
+          />
+        </div>
+
+        {/* FIX: was rendered as plain text `if ({...` — now a proper conditional */}
+        {formData.is_accessible_track && (
+          <div className="space-y-1">
+            <Label className="text-xs">Accommodation Type</Label>
+            <Select
+              value={formData.accommodation_type}
+              onValueChange={v => handleFormChange('accommodation_type', v)}
+            >
+              <SelectTrigger className="h-8 text-xs bg-white">
+                <SelectValue placeholder="Select accommodation" />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="hearing_ksl">Kenyan Sign Language (KSL)</SelectItem>
+                <SelectItem value="visual_braille">Braille / Voice Reader</SelectItem>
+                <SelectItem value="mobility_switch">Mobility / Switch Scanning</SelectItem>
+              </SelectContent>
+            </Select>
+          </div>
+        )}
+      </div>
+
+      {renderFormError(formError)}
     </div>
   )
 
-  const canManage = user?.role === 'admin' || user?.role === 'super_admin' || user?.role === 'timetable_manager'
-  
-  const getHeaderTitle = () => {
-    if (user?.role === 'student') return 'MY CLASS SCHEDULE'
-    if (user?.role === 'parent') return 'CHILDREN\'S CLASS SCHEDULE'
-    return 'ACADEMIC TIMETABLE'
-  }
-  
-  const getHeaderSubtitle = () => {
-    if (user?.role === 'student') return 'Your personal class timetable'
-    if (user?.role === 'parent') return 'Timetables for your children'
-    return 'Manage class schedules'
-  }
-
-  const getColorForCourse = (index: number) => {
-    const colors = ['sky', 'orange', 'green', 'purple', 'red']
-    return colors[index % colors.length]
-  }
-
+  // ── Main render ───────────────────────────────────────────────
   return (
-    <div className="flex h-screen w-full bg-slate-100 font-sans text-slate-900">
-      <main className="flex-1 flex flex-col overflow-hidden">
-        <header className="h-12 sm:h-16 bg-slate-800 flex items-center justify-between px-4 sm:px-6 lg:px-8 shadow-sm z-10">
-          <h1 className="text-white font-semibold text-sm sm:text-lg tracking-wide truncate">
-            {getHeaderTitle()}
-          </h1>
-          <div className="h-8 w-8 sm:h-9 sm:w-9 bg-slate-600 rounded-full flex items-center justify-center text-white hover:bg-slate-500 cursor-pointer flex-shrink-0">
-            <User size={16} className="sm:block hidden" />
-            <User size={14} className="sm:hidden block" />
+    <>
+      {/* Print-only stylesheet injected in head */}
+      <style>{`
+        @media print {
+          .no-print { display: none !important; }
+          .print-area { display: block !important; }
+          body { background: white; }
+        }
+        .print-area { display: none; }
+      `}</style>
+
+      <div className="flex flex-col min-h-screen bg-slate-50 font-sans text-slate-900">
+        {/* ── Header ─────────────────────────────────────────────── */}
+        <header className="bg-slate-800 text-white px-4 sm:px-8 py-3 flex items-center justify-between no-print">
+          <div>
+            <h1 className="font-bold text-base sm:text-lg tracking-wide">{headerTitle}</h1>
+            <p className="text-slate-400 text-xs mt-0.5">
+              {user?.schoolName || 'School'} · {new Date().toLocaleDateString('en-KE', { dateStyle: 'long' })}
+            </p>
+          </div>
+          <div className="flex items-center gap-2">
+            {/* Print */}
+            <Button
+              variant="ghost"
+              size="sm"
+              onClick={handlePrint}
+              className="text-slate-300 hover:text-white hover:bg-slate-700 gap-1.5"
+            >
+              <Printer size={15} /> <span className="hidden sm:inline">Print</span>
+            </Button>
+            {/* Download */}
+            <Button
+              variant="ghost"
+              size="sm"
+              onClick={handleDownloadHTML}
+              className="text-slate-300 hover:text-white hover:bg-slate-700 gap-1.5"
+            >
+              <Download size={15} /> <span className="hidden sm:inline">Download</span>
+            </Button>
           </div>
         </header>
 
-        <div className="flex-1 overflow-y-auto p-4 sm:p-6 lg:p-8">
-          <div className="mb-6 sm:mb-8">
-            <h2 className="text-xl sm:text-2xl font-bold text-slate-700 uppercase tracking-tight">
-              {getHeaderTitle()}
-            </h2>
-            <p className="text-xs sm:text-sm text-slate-500 mt-1">{getHeaderSubtitle()}</p>
-          </div>
-
-          {!canManage && timetableData.length === 0 && (
-            <div className="bg-blue-50 border border-blue-200 text-blue-700 p-3 sm:p-4 rounded-lg mb-6 flex items-start gap-2 sm:gap-3">
-              <AlertCircle className="w-4 sm:w-5 h-4 sm:h-5 flex-shrink-0 mt-0.5" />
-              <div>
-                <p className="font-medium text-sm sm:text-base">No classes scheduled</p>
-                <p className="text-xs sm:text-sm text-blue-600 mt-1">Your timetable appears to be empty or not yet scheduled by administrators.</p>
+        <main className="flex-1 p-4 sm:p-6 lg:p-8 no-print">
+          {/* ── Toolbar ─────────────────────────────────────────── */}
+          <div className="flex flex-wrap items-center gap-2 mb-6">
+            {/* Grade filter (admin/manager) */}
+            {canManage && (
+              <div className="w-40">
+                <Select value={selectedGrade} onValueChange={setSelectedGrade}>
+                  <SelectTrigger className="bg-white border-slate-200 h-9 text-sm">
+                    <SelectValue placeholder="All Grades" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="all-grades">All Grades</SelectItem>
+                    {gradeLevels.map(g => <SelectItem key={g} value={g}>{g}</SelectItem>)}
+                  </SelectContent>
+                </Select>
               </div>
-            </div>
-          )}
+            )}
 
-          <div className="bg-white p-3 sm:p-4 rounded-lg shadow-sm border border-slate-200 mb-6 flex flex-wrap items-center justify-between gap-2 sm:gap-4">
-            <div className="flex items-center gap-2 sm:gap-4 flex-wrap w-full sm:w-auto">
-              {(user?.role === 'admin' || user?.role === 'super_admin' || user?.role === 'timetable_manager') && (
-                <div className="flex items-center gap-2 mr-2">
-                  <div className="w-40">
-                    <Select value={selectedGrade} onValueChange={setSelectedGrade}>
-                      <SelectTrigger className="bg-slate-50 border-slate-200">
-                        <SelectValue placeholder="All Grades" />
-                      </SelectTrigger>
-                      <SelectContent>
-                        <SelectItem value="all-grades">All Grades</SelectItem>
-                        {gradeLevels.map(grade => (
-                          <SelectItem key={grade} value={grade}>{grade}</SelectItem>
-                        ))}
-                      </SelectContent>
-                    </Select>
-                  </div>
-                  <div className="w-32">
-                    <Input 
-                      placeholder="Section" 
-                      value={selectedSection} 
-                      onChange={(e) => setSelectedSection(e.target.value)}
-                      className="bg-slate-50 border-slate-200 h-10"
-                    />
-                  </div>
-                </div>
-              )}
-              {canManage && (
-                <>
-                  <Dialog open={isAddDialogOpen} onOpenChange={(open) => { setIsAddDialogOpen(open); setFormData(EMPTY_FORM); setFormError(null); }}>
-                    <DialogTrigger asChild>
-                      <button className="bg-teal-500 hover:bg-teal-600 text-white px-3 sm:px-4 py-2 rounded-md font-medium text-sm flex items-center gap-1 sm:gap-2 transition-colors shadow-sm flex-1 sm:flex-none justify-center">
-                        <Plus size={16} className="sm:block hidden" />
-                        <Plus size={14} className="sm:hidden block" />
-                        <span className="hidden sm:inline">ADD NEW ENTRY</span>
-                        <span className="sm:hidden">Add</span>
-                      </button>
-                    </DialogTrigger>
-                    <DialogContent className="max-w-md overflow-y-auto max-h-[90vh]">
-                      <form onSubmit={handleAddSubmit}>
-                        <DialogHeader>
-                          <DialogTitle>Add Timetable Entry</DialogTitle>
-                        <DialogDescription>
-                          Add a new timetable entry for the academic schedule
-                        </DialogDescription>
-                        </DialogHeader>
-                        <div className="py-3 space-y-3">
-                          <div className="space-y-1">
-                            <Label htmlFor="day_of_week">Day of Week</Label>
-                            <Select value={formData.day_of_week} onValueChange={(val) => handleFormChange('day_of_week', val)}>
-                              <SelectTrigger><SelectValue /></SelectTrigger>
-                              <SelectContent>
-                                {DAYS_OF_WEEK.map(day => <SelectItem key={day} value={day}>{day.charAt(0).toUpperCase() + day.slice(1)}</SelectItem>)}
-                              </SelectContent>
-                            </Select>
-                          </div>
-                          <div className="space-y-1">
-                            <Label htmlFor="period_id">Time Period</Label>
-                            <Select value={formData.period_id} onValueChange={(val) => handleFormChange('period_id', val)}>
-                              <SelectTrigger><SelectValue placeholder="Select period" /></SelectTrigger>
-                              <SelectContent>
-                                {periods.map(p => <SelectItem key={p.id} value={String(p.id)}>{p.name} ({p.start_time} - {p.end_time})</SelectItem>)}
-                              </SelectContent>
-                            </Select>
-                          </div>
-                          <div className="space-y-1">
-                            <Label htmlFor="course_id">Course</Label>
-                            <Select value={formData.course_id} onValueChange={(val) => handleFormChange('course_id', val)}>
-                              <SelectTrigger><SelectValue placeholder="Select course" /></SelectTrigger>
-                              <SelectContent>
-                                {courses.map(c => <SelectItem key={c.id} value={String(c.id)}>{c.name}</SelectItem>)}
-                              </SelectContent>
-                            </Select>
-                          </div>
-                          <div className="space-y-1">
-                            <Label htmlFor="teacher_id">Teacher</Label>
-                            <Select value={formData.teacher_id} onValueChange={(val) => handleFormChange('teacher_id', val)}>
-                              <SelectTrigger><SelectValue placeholder={teachers.length === 0 ? "No teachers available" : "Select teacher"} /></SelectTrigger>
-                              <SelectContent>
-                                {teachers.length === 0 ? (
-                                  <SelectItem disabled value="no-teachers">No teachers available</SelectItem>
-                                ) : (
-                                  teachers.map(t => <SelectItem key={t.id} value={String(t.id)}>{t.name}</SelectItem>)
-                                )}
-                              </SelectContent>
-                            </Select>
-                          </div>
-                          <div className="grid grid-cols-2 gap-2">
-                            <div className="space-y-1">
-                              <Label htmlFor="grade">Grade</Label>
-                              <Select value={formData.grade} onValueChange={(val) => handleFormChange('grade', val)}>
-                                <SelectTrigger><SelectValue placeholder="Select grade" /></SelectTrigger>
-                                <SelectContent>
-                                  {gradeLevels.map(grade => (
-                                    <SelectItem key={grade} value={grade}>{grade}</SelectItem>
-                                  ))}
-                                </SelectContent>
-                              </Select>
-                            </div>
-                            <div className="space-y-1">
-                              <Label htmlFor="class_section">Section (Stream)</Label>
-                              <Input
-                                id="class_section"
-                                value={formData.class_section}
-                                onChange={(e) => handleFormChange('class_section', e.target.value)}
-                                placeholder="e.g., A, B"
-                              />
-                            </div>
-                          </div>
-                          <div className="space-y-1">
-                            <Label htmlFor="classroom">Room</Label>
-                            <Input
-                              id="classroom"
-                              value={formData.classroom}
-                              onChange={(e) => handleFormChange('classroom', e.target.value)}
-                              placeholder="e.g., Room 101"
-                            />
-                          </div>
+            {/* Section filter */}
+            {canManage && (
+              <Input
+                className="w-32 h-9 text-sm bg-white"
+                placeholder="Section"
+                value={selectedSection}
+                onChange={e => setSelectedSection(e.target.value)}
+              />
+            )}
 
-                          {/* Accessibility Features Section */}
-                          <div className="p-3 bg-slate-50 border rounded-xl space-y-3 mt-2">
-                            <div className="flex items-center justify-between">
-                              <div className="space-y-0.5">
-                                <Label className="text-xs font-semibold text-slate-900 cursor-pointer" htmlFor="is_accessible_track">
-                                  Special Education / Adaptive Session
-                                </Label>
-                                <p className="text-[11px] text-slate-500">
-                                  Mark if this period loop includes specific disability accommodation settings.
-                                </p>
-                              </div>
-                              <input
-                                id="is_accessible_track"
-                                type="checkbox"
-                                className="h-4 w-4 rounded border-slate-300 text-emerald-600 focus:ring-emerald-500 cursor-pointer accent-emerald-600"
-                                checked={formData.is_accessible_track}
-                                onChange={(e) => handleFormChange('is_accessible_track', e.target.checked)}
-                              />
-                            </div>
-                           {formData.is_accessible_track && (
-  <div className="space-y-1 animate-in fade-in duration-200">
-    <Label htmlFor="edit_accommodation_type" className="text-xs">Accommodation Overlay Engine</Label>
-    <Select value={formData.accommodation_type} onValueChange={(val) => handleFormChange('accommodation_type', val)}>
-      <SelectTrigger id="edit_accommodation_type" className="bg-white h-9 text-xs">
-        <SelectValue placeholder="Select impairment track parameters" />
-      </SelectTrigger>
-      <SelectContent>
-        <SelectItem value="hearing_ksl">Kenyan Sign Language (KSL Interpreter Engaged)</SelectItem>
-        <SelectItem value="visual_braille">Braille Tactile / Voice Reader Engine Active</SelectItem>
-        <SelectItem value="mobility_switch">Mobility Accommodation / Switch Scanning Sequence</SelectItem>
-      </SelectContent>
-    </Select>
-  </div>
-)}
-                          </div>
+            <div className="flex-1" />
 
-                          {renderFormError(formError)}
+            {/* Add Entry */}
+            {canManage && (
+              <>
+                <Dialog
+                  open={isAddDialogOpen}
+                  onOpenChange={open => { setIsAddDialogOpen(open); if (!open) { setFormData(EMPTY_FORM); setFormError(null) } }}
+                >
+                  <DialogTrigger asChild>
+                    <Button size="sm" className="gap-1.5">
+                      <Plus size={15} /> Add Entry
+                    </Button>
+                  </DialogTrigger>
+                  <DialogContent className="max-w-md max-h-[90vh] overflow-y-auto">
+                    <form onSubmit={handleAddSubmit}>
+                      <DialogHeader>
+                        <DialogTitle>Add Timetable Entry</DialogTitle>
+                        <DialogDescription>Schedule a class session</DialogDescription>
+                      </DialogHeader>
+                      <div className="py-4">
+                        <EntryFormFields />
+                      </div>
+                      <DialogFooter>
+                        <Button type="button" variant="outline" onClick={() => setIsAddDialogOpen(false)}>Cancel</Button>
+                        <Button type="submit" disabled={isSubmitting}>
+                          {isSubmitting && <Loader2 className="w-4 h-4 mr-2 animate-spin" />}
+                          Add Entry
+                        </Button>
+                      </DialogFooter>
+                    </form>
+                  </DialogContent>
+                </Dialog>
+
+                {/* Add Period */}
+                <Dialog
+                  open={isPeriodDialogOpen}
+                  onOpenChange={open => { setIsPeriodDialogOpen(open); if (!open) { setPeriodFormData({ period_name: '', start_time: '', end_time: '', is_break: false }); setFormError(null) } }}
+                >
+                  <DialogTrigger asChild>
+                    <Button size="sm" variant="outline" className="gap-1.5">
+                      <Clock size={15} /> Add Period
+                    </Button>
+                  </DialogTrigger>
+                  <DialogContent className="max-w-sm">
+                    <form onSubmit={handleAddPeriodSubmit}>
+                      <DialogHeader>
+                        <DialogTitle>Add Time Period</DialogTitle>
+                        <DialogDescription>Define a new period in the school day</DialogDescription>
+                      </DialogHeader>
+                      <div className="py-4 space-y-3">
+                        <div className="space-y-1">
+                          <Label>Period Name</Label>
+                          <Input value={periodFormData.period_name} onChange={e => handlePeriodChange('period_name', e.target.value)} placeholder="e.g., Period 3" />
                         </div>
-                        <DialogFooter className="mt-2">
-                          <Button type="button" variant="outline" onClick={() => setIsAddDialogOpen(false)}>
-                            Cancel
-                          </Button>
-                          <Button type="submit" disabled={isSubmitting}>
-                            {isSubmitting && <Loader2 className="w-4 h-4 mr-2 animate-spin" />}
-                            Add Entry
-                          </Button>
-                        </DialogFooter>
-                      </form>
-                    </DialogContent>
-                  </Dialog>
-
-                  <Dialog open={isAddPeriodDialogOpen} onOpenChange={(open) => { setIsAddPeriodDialogOpen(open); setPeriodFormData({ period_name: '', start_time: '', end_time: '', is_break: false }); setFormError(null); }}>
-                    <DialogTrigger asChild>
-                      <button className="flex items-center gap-1 bg-white border border-slate-300 text-slate-600 px-3 sm:px-4 py-2 rounded-md text-sm hover:border-slate-400 transition-colors flex-1 sm:flex-none justify-center">
-                        <span>Add Period</span>
-                        <ChevronDown size={14} className="hidden sm:inline" />
-                      </button>
-                    </DialogTrigger>
-                    <DialogContent>
-                      <form onSubmit={handleAddPeriodSubmit}>
-                        <DialogHeader>
-                          <DialogTitle>Add Time Period</DialogTitle>
-                        <DialogDescription>
-                          Define a new time period for the school schedule
-                        </DialogDescription>
-                        </DialogHeader>
-                        <div className="py-4 space-y-4">
-                          <div className="space-y-2">
-                            <Label htmlFor="period_name">Period Name</Label>
-                            <Input
-                              id="period_name"
-                              value={periodFormData.period_name}
-                              onChange={(e) => handlePeriodFormChange('period_name', e.target.value)}
-                              placeholder="e.g., Period 1"
-                            />
+                        <div className="grid grid-cols-2 gap-3">
+                          <div className="space-y-1">
+                            <Label>Start Time</Label>
+                            <Input type="time" value={periodFormData.start_time} onChange={e => handlePeriodChange('start_time', e.target.value)} />
                           </div>
-                          <div className="space-y-2">
-                            <Label htmlFor="start_time">Start Time</Label>
-                            <Input
-                              id="start_time"
-                              type="time"
-                              value={periodFormData.start_time}
-                              onChange={(e) => handlePeriodFormChange('start_time', e.target.value)}
-                            />
+                          <div className="space-y-1">
+                            <Label>End Time</Label>
+                            <Input type="time" value={periodFormData.end_time} onChange={e => handlePeriodChange('end_time', e.target.value)} />
                           </div>
-                          <div className="space-y-2">
-                            <Label htmlFor="end_time">End Time</Label>
-                            <Input
-                              id="end_time"
-                              type="time"
-                              value={periodFormData.end_time}
-                              onChange={(e) => handlePeriodFormChange('end_time', e.target.value)}
-                            />
-                          </div>
-                          <div className="flex items-center space-x-2">
-                            <input
-                              type="checkbox"
-                              id="is_break"
-                              checked={periodFormData.is_break}
-                              onChange={(e) => handlePeriodFormChange('is_break', e.target.checked)}
-                            />
-                            <Label htmlFor="is_break">Is Break Period</Label>
-                          </div>
-                          {formError && (
-                            <div className="text-red-600 text-sm">{formError}</div>
-                          )}
                         </div>
-                        <DialogFooter>
-                          <Button type="button" variant="outline" onClick={() => setIsAddPeriodDialogOpen(false)}>
-                            Cancel
-                          </Button>
-                          <Button type="submit" disabled={isSubmitting}>
-                            {isSubmitting && <Loader2 className="w-4 h-4 mr-2 animate-spin" />}
-                            Add Period
-                          </Button>
-                        </DialogFooter>
-                      </form>
-                    </DialogContent>
-                  </Dialog>
-                </>
-              )}
-            </div>
+                        <label className="flex items-center gap-2 text-sm cursor-pointer select-none">
+                          <input
+                            type="checkbox"
+                            className="h-4 w-4 accent-slate-700"
+                            checked={periodFormData.is_break}
+                            onChange={e => handlePeriodChange('is_break', e.target.checked)}
+                          />
+                          Mark as break / recess
+                        </label>
+                        {renderFormError(formError)}
+                      </div>
+                      <DialogFooter>
+                        <Button type="button" variant="outline" onClick={() => setIsPeriodDialogOpen(false)}>Cancel</Button>
+                        <Button type="submit" disabled={isSubmitting}>
+                          {isSubmitting && <Loader2 className="w-4 h-4 mr-2 animate-spin" />}
+                          Add Period
+                        </Button>
+                      </DialogFooter>
+                    </form>
+                  </DialogContent>
+                </Dialog>
+              </>
+            )}
           </div>
 
           {renderError(error)}
 
-          {isLoading ? renderLoading() : (
+          {isLoading ? (
+            <div className="flex items-center justify-center p-16 text-slate-500">
+              <Loader2 className="w-6 h-6 animate-spin mr-2" /> Loading timetable…
+            </div>
+          ) : (
             <>
-              <div className="md:hidden mb-4">
-                <label className="block text-sm font-medium text-slate-700 mb-2">Select Day</label>
-                <Select value={selectedDay} onValueChange={setSelectedDay}>
-                  <SelectTrigger className="w-full"><SelectValue /></SelectTrigger>
-                  <SelectContent>
-                    {DAYS_OF_WEEK.map(day => <SelectItem key={day} value={day}>{day.charAt(0).toUpperCase() + day.slice(1)}</SelectItem>)}
-                  </SelectContent>
-                </Select>
-              </div>
-
-              <div className="hidden md:block bg-white rounded-xl shadow-sm border border-slate-200 overflow-hidden flex flex-col h-[600px]">
-                <div className="grid grid-cols-[60px_1fr_1fr_1fr_1fr_1fr] lg:grid-cols-[80px_1fr_1fr_1fr_1fr_1fr] bg-slate-800 text-white font-semibold text-xs lg:text-sm uppercase text-center sticky top-0">
-                  <div className="p-2 lg:p-4 border-r border-slate-700"></div>
-                  {['monday', 'tuesday', 'wednesday', 'thursday', 'friday'].map(day => (
-                    <div key={day} className="p-2 lg:p-4 border-r border-slate-700 last:border-r-0">
-                      {day.charAt(0).toUpperCase() + day.slice(1)}
+              {/* ── Desktop grid ──────────────────────────────── */}
+              <div className="hidden md:block bg-white rounded-xl shadow-sm border border-slate-200 overflow-hidden" ref={printRef}>
+                {/* Day headers */}
+                <div className="grid bg-slate-800 text-white text-xs font-semibold uppercase text-center"
+                  style={{ gridTemplateColumns: '90px repeat(5, 1fr)' }}>
+                  <div className="p-3 border-r border-slate-700" />
+                  {DAYS.map(d => (
+                    <div key={d} className="p-3 border-r border-slate-700 last:border-r-0">
+                      {d.charAt(0).toUpperCase() + d.slice(1)}
                     </div>
                   ))}
                 </div>
 
-                <div className="flex-1 relative overflow-y-auto">
-                  <div 
-                    className="absolute inset-0 grid grid-cols-[60px_1fr_1fr_1fr_1fr_1fr] lg:grid-cols-[80px_1fr_1fr_1fr_1fr_1fr]"
-                    style={{ 
-                      gridTemplateRows: `repeat(${Math.max(periods.length, 1)}, minmax(100px, 120px))` 
-                    }}
+                {/* Period rows */}
+                {periods.map(period => (
+                  <div
+                    key={period.id}
+                    className="grid border-b border-slate-100 last:border-b-0"
+                    style={{ gridTemplateColumns: '90px repeat(5, 1fr)', minHeight: '90px' }}
                   >
-                    <div className="border-r border-slate-200 bg-slate-50 flex flex-col text-xs text-slate-400 font-medium text-right pr-2 lg:pr-3 pt-2">
-                      {periods.map((p) => (
-                        <div key={p.id} className="h-[100px] lg:h-[120px] flex flex-col justify-start">
-                          <span className="text-xs">{p.start_time.substring(0, 5)}</span>
-                        </div>
-                      ))}
+                    {/* Period label */}
+                    <div className={`border-r border-slate-200 flex flex-col justify-center px-2 py-1 ${period.is_break ? 'bg-slate-100' : 'bg-slate-50'}`}>
+                      <span className="text-[10px] font-bold text-slate-500 uppercase leading-tight">{period.name}</span>
+                      <span className="text-[10px] text-slate-400">{period.start_time}</span>
+                      <span className="text-[10px] text-slate-400">{period.end_time}</span>
                     </div>
-                    {[...Array(periods.length * 5)].map((_, idx) => (
-                      <div key={idx} className="border-r border-b border-slate-100 opacity-50" />
-                    ))}
-                  </div>
 
-                  <div 
-                    className="absolute inset-0 grid grid-cols-[60px_1fr_1fr_1fr_1fr_1fr] lg:grid-cols-[80px_1fr_1fr_1fr_1fr_1fr] pointer-events-none"
-                    style={{ 
-                      gridTemplateRows: `repeat(${Math.max(periods.length, 1)}, minmax(100px, 120px))` 
-                    }}
-                  >
-                    {timetableData.map((entry, idx) => {
-                      const dayLower = (entry.day_of_week || '').trim().toLowerCase();
-                      const dayIndex = ['monday', 'tuesday', 'wednesday', 'thursday', 'friday'].indexOf(dayLower);
-                      const periodIndex = periods.findIndex(p => String(p.id) === String(entry.period_id));
-                      const color = getColorForCourse(idx) as keyof typeof colorStyles
-                      
-                      if (dayIndex < 0 || periodIndex < 0) return null
-
+                    {/* Day cells */}
+                    {DAYS.map(day => {
+                      const entry = timetableData.find(e =>
+                        e.day_of_week === day && String(e.period_id) === String(period.id)
+                      )
+                      if (period.is_break) {
+                        return (
+                          <div key={day} className="border-r border-slate-100 last:border-r-0 bg-slate-50 flex items-center justify-center">
+                            <span className="text-xs text-slate-400 italic">Break</span>
+                          </div>
+                        )
+                      }
+                      if (!entry) {
+                        // Empty cell – clicking it pre-fills the form
+                        return (
+                          <div
+                            key={day}
+                            className="border-r border-slate-100 last:border-r-0 group relative"
+                            onClick={() => {
+                              if (!canManage) return
+                              setFormData({ ...EMPTY_FORM, day_of_week: day, period_id: String(period.id) })
+                              setFormError(null)
+                              setIsAddDialogOpen(true)
+                            }}
+                          >
+                            {canManage && (
+                              <div className="absolute inset-0 flex items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity cursor-pointer">
+                                <span className="text-xs text-slate-400 flex items-center gap-1">
+                                  <Plus size={12} /> Add class
+                                </span>
+                              </div>
+                            )}
+                          </div>
+                        )
+                      }
+                      const color = colorForCourse(entry.course_id)
                       return (
-                        <div
-                          key={entry.id}
-                          className="p-1 lg:p-2 pointer-events-auto"
-                          style={{
-                            gridColumn: dayIndex + 2,
-                            gridRow: periodIndex + 1
-                          }}
-                        >
-                          <ClassCardWithActions
+                        <div key={day} className="border-r border-slate-100 last:border-r-0 p-1.5">
+                          <ClassCard
                             entry={entry}
-                            colorStyle={colorStyles[color]}
-                            labelColorStyle={labelColorStyles[color]}
+                            colorStyle={COLOR_CELL[color]}
+                            labelStyle={COLOR_TEXT[color]}
                             canManage={canManage}
                             onEdit={() => handleOpenEditDialog(entry)}
                             onDelete={() => handleDelete(entry.id)}
@@ -830,290 +811,220 @@ export default function Timetable() {
                       )
                     })}
                   </div>
-                </div>
+                ))}
+
+                {periods.length === 0 && (
+                  <div className="text-center py-12 text-slate-400 text-sm">
+                    <BookOpen className="w-8 h-8 mx-auto mb-2 opacity-40" />
+                    No periods defined yet.{canManage ? ' Add a period to get started.' : ''}
+                  </div>
+                )}
               </div>
 
-              <div className="md:hidden space-y-3">
-                {periods.map((period) => {
-                  const dayEntries = timetableData.filter(e => {
-                    const dayLower = (e.day_of_week || '').trim().toLowerCase();
-                    return dayLower === selectedDay.toLowerCase() && String(e.period_id) === String(period.id);
-                  });
-                  return (
-                    <div key={period.id} className="bg-white rounded-lg border border-slate-200 p-3 sm:p-4">
-                      <div className="font-semibold text-sm text-slate-700 mb-2">
-                        {period.name} ({period.start_time} - {period.end_time})
-                      </div>
-                      {dayEntries.length === 0 ? (
-                        <p className="text-xs sm:text-sm text-slate-500">No classes scheduled</p>
-                      ) : (
-                        <div className="space-y-2">
-                          {dayEntries.map((entry, idx) => {
-                            const color = getColorForCourse(idx) as keyof typeof colorStyles
+              {/* ── Mobile list (one day at a time) ────────────── */}
+              <div className="md:hidden">
+                <div className="flex gap-1 mb-4 overflow-x-auto pb-1">
+                  {DAYS.map(d => (
+                    <button
+                      key={d}
+                      onClick={() => setSelectedDay(d)}
+                      className={`px-3 py-1.5 rounded-full text-xs font-medium whitespace-nowrap transition-colors ${
+                        selectedDay === d
+                          ? 'bg-slate-800 text-white'
+                          : 'bg-white border border-slate-200 text-slate-600'
+                      }`}
+                    >
+                      {d.charAt(0).toUpperCase() + d.slice(1, 3)}
+                    </button>
+                  ))}
+                </div>
+
+                <div className="space-y-2">
+                  {periods.map(period => {
+                    const entries = timetableData.filter(e =>
+                      e.day_of_week === selectedDay && String(e.period_id) === String(period.id)
+                    )
+                    return (
+                      <div key={period.id} className="bg-white rounded-lg border border-slate-200 p-3">
+                        <div className="text-xs font-semibold text-slate-500 mb-2 flex items-center gap-1">
+                          <Clock size={11} />
+                          {period.name} · {period.start_time}–{period.end_time}
+                          {period.is_break && <span className="ml-1 italic text-slate-400">(Break)</span>}
+                        </div>
+                        {entries.length === 0 ? (
+                          <p className="text-xs text-slate-400">
+                            {period.is_break ? 'Break time' : 'No class scheduled'}
+                          </p>
+                        ) : (
+                          entries.map((entry, idx) => {
+                            const color = colorForCourse(entry.course_id)
                             return (
-                              <div key={entry.id} className={`rounded-md p-3 text-sm relative ${colorStyles[color]}`}>
-                                <div className="font-semibold mb-1 flex items-center justify-between gap-1 flex-wrap">
-                                  <span className="flex items-center gap-1.5">
-                                    {entry.course_name}
-                                    {entry.is_accessible_track && <Accessibility size={14} className="text-emerald-700 animate-pulse" />}
-                                  </span>
-                                  {entry.class_section && <span className="text-[10px] opacity-70">({entry.class_section})</span>}
-                                </div>
-                                <div className={`text-xs space-y-1 ${labelColorStyles[color]}`}>
-                                  <div className="flex items-center gap-1">
-                                    <User size={12} /> {entry.teacher_name || 'N/A'}
-                                  </div>
-                                  <div className="flex items-center gap-1">
-                                    <MapPin size={12} /> Room: {entry.classroom}
-                                  </div>
-                                  {entry.is_accessible_track && entry.accommodation_type !== 'none' && (
-                                    <div className="text-[10px] bg-white/60 p-0.5 px-1 rounded font-bold border border-emerald-200/50 mt-1 inline-block">
-                                      {entry.accommodation_type === 'hearing_ksl' && '🧏 KSL Interpreter Active'}
-                                      {entry.accommodation_type === 'visual_braille' && '👁️ Voice Engine / Tactile active'}
-                                      {entry.accommodation_type === 'mobility_switch' && '🕹️ Dynamic Switch Control Track'}
-                                    </div>
-                                  )}
+                              <div key={entry.id} className={`rounded-md p-2.5 text-sm ${COLOR_CELL[color]} border-l-4`}>
+                                <div className={`font-semibold mb-1 ${COLOR_TEXT[color]}`}>{entry.course_name}</div>
+                                <div className={`text-xs space-y-0.5 ${COLOR_TEXT[color]} opacity-80`}>
+                                  <div className="flex items-center gap-1"><User size={11} /> {entry.teacher_name || 'N/A'}</div>
+                                  <div className="flex items-center gap-1"><MapPin size={11} /> {entry.classroom || '—'}</div>
                                 </div>
                                 {canManage && (
                                   <div className="flex gap-1 mt-2">
-                                    <button
-                                      onClick={() => handleOpenEditDialog(entry)}
-                                      className="flex-1 text-xs bg-white/50 hover:bg-white px-2 py-1 rounded transition-colors"
-                                    >
-                                      <Edit size={12} className="inline mr-1" /> Edit
+                                    <button onClick={() => handleOpenEditDialog(entry)} className="flex-1 text-xs bg-white/50 hover:bg-white px-2 py-1 rounded">
+                                      <Edit size={11} className="inline mr-1" />Edit
                                     </button>
-                                    <button
-                                      onClick={() => handleDelete(entry.id)}
-                                      className="flex-1 text-xs bg-red-100 hover:bg-red-200 text-red-700 px-2 py-1 rounded transition-colors"
-                                    >
-                                      <Trash2 size={12} className="inline mr-1" /> Delete
+                                    <button onClick={() => handleDelete(entry.id)} className="flex-1 text-xs bg-red-50 hover:bg-red-100 text-red-600 px-2 py-1 rounded">
+                                      <Trash2 size={11} className="inline mr-1" />Delete
                                     </button>
                                   </div>
                                 )}
                               </div>
                             )
-                          })}
-                        </div>
-                      )}
-                    </div>
-                  )
-                })}
+                          })
+                        )}
+                      </div>
+                    )
+                  })}
+                </div>
               </div>
             </>
           )}
+        </main>
+
+        {/* ── Print-only view (hidden on screen, visible when printing) ── */}
+        <div className="print-area p-6">
+          <h1 className="text-xl font-bold mb-1">{user?.schoolName || 'School'} — Academic Timetable</h1>
+          <p className="text-sm text-gray-500 mb-4">
+            {selectedGrade && selectedGrade !== 'all-grades' ? `Grade: ${selectedGrade} · ` : ''}
+            Printed {new Date().toLocaleDateString('en-KE', { dateStyle: 'long' })}
+          </p>
+          <table style={{ borderCollapse: 'collapse', width: '100%', fontSize: 11 }}>
+            <thead>
+              <tr>
+                <th style={{ border: '1px solid #ccc', padding: '6px 8px', background: '#1e293b', color: '#fff', textAlign: 'left' }}>Period</th>
+                {DAYS.map(d => (
+                  <th key={d} style={{ border: '1px solid #ccc', padding: '6px 8px', background: '#1e293b', color: '#fff', textAlign: 'center' }}>
+                    {d.charAt(0).toUpperCase() + d.slice(1)}
+                  </th>
+                ))}
+              </tr>
+            </thead>
+            <tbody>
+              {periods.map(period => (
+                <tr key={period.id}>
+                  <td style={{ border: '1px solid #ddd', padding: '6px 8px', whiteSpace: 'nowrap', background: '#f8fafc' }}>
+                    <strong>{period.name}</strong><br />
+                    <span style={{ color: '#888', fontSize: 10 }}>{period.start_time}–{period.end_time}</span>
+                  </td>
+                  {DAYS.map(day => {
+                    const entry = timetableData.find(e =>
+                      e.day_of_week === day && String(e.period_id) === String(period.id)
+                    )
+                    if (period.is_break) return (
+                      <td key={day} style={{ border: '1px solid #ddd', padding: '6px 8px', textAlign: 'center', color: '#aaa', fontStyle: 'italic', background: '#f8fafc' }}>Break</td>
+                    )
+                    if (!entry) return <td key={day} style={{ border: '1px solid #ddd', padding: '6px 8px' }} />
+                    return (
+                      <td key={day} style={{ border: '1px solid #ddd', padding: '6px 8px', verticalAlign: 'top' }}>
+                        <strong>{entry.course_name}</strong><br />
+                        <span style={{ color: '#555', fontSize: 10 }}>{entry.teacher_name}</span><br />
+                        <span style={{ color: '#999', fontSize: 10 }}>Rm: {entry.classroom || '—'}</span>
+                      </td>
+                    )
+                  })}
+                </tr>
+              ))}
+            </tbody>
+          </table>
         </div>
-      </main>
 
-      {canManage && (
-        <Dialog open={isEditDialogOpen} onOpenChange={(open) => { setIsEditDialogOpen(open); setFormData(EMPTY_FORM); setFormError(null); }}>
-          <DialogContent className="max-w-md overflow-y-auto max-h-[90vh]">
-            <form onSubmit={handleEditSubmit}>
-              <DialogHeader>
-                <DialogTitle>Edit Timetable Entry</DialogTitle>
-              </DialogHeader>
-              <div className="py-3 space-y-3">
-                <div className="space-y-1">
-                  <Label htmlFor="edit_day_of_week">Day of Week</Label>
-                  <Select value={formData.day_of_week} onValueChange={(val) => handleFormChange('day_of_week', val)}>
-                    <SelectTrigger><SelectValue /></SelectTrigger>
-                    <SelectContent>
-                      {DAYS_OF_WEEK.map(day => <SelectItem key={day} value={day}>{day.charAt(0).toUpperCase() + day.slice(1)}</SelectItem>)}
-                    </SelectContent>
-                  </Select>
+        {/* ── Edit Dialog ─────────────────────────────────────────── */}
+        {canManage && (
+          <Dialog
+            open={isEditDialogOpen}
+            onOpenChange={open => { setIsEditDialogOpen(open); if (!open) { setFormData(EMPTY_FORM); setFormError(null) } }}
+          >
+            <DialogContent className="max-w-md max-h-[90vh] overflow-y-auto">
+              <form onSubmit={handleEditSubmit}>
+                <DialogHeader>
+                  <DialogTitle>Edit Timetable Entry</DialogTitle>
+                </DialogHeader>
+                <div className="py-4">
+                  <EntryFormFields />
                 </div>
-                <div className="space-y-1">
-                  <Label htmlFor="edit_period_id">Time Period</Label>
-                  <Select value={formData.period_id} onValueChange={(val) => handleFormChange('period_id', val)}>
-                    <SelectTrigger><SelectValue placeholder="Select period" /></SelectTrigger>
-                    <SelectContent>
-                      {periods.map(p => <SelectItem key={p.id} value={String(p.id)}>{p.name} ({p.start_time} - {p.end_time})</SelectItem>)}
-                    </SelectContent>
-                  </Select>
-                </div>
-                <div className="space-y-1">
-                  <Label htmlFor="edit_course_id">Course</Label>
-                  <Select value={formData.course_id} onValueChange={(val) => handleFormChange('course_id', val)}>
-                    <SelectTrigger><SelectValue placeholder="Select course" /></SelectTrigger>
-                    <SelectContent>
-                      {courses.map(c => <SelectItem key={c.id} value={String(c.id)}>{c.name}</SelectItem>)}
-                    </SelectContent>
-                  </Select>
-                </div>
-                <div className="space-y-1">
-                  <Label htmlFor="edit_teacher_id">Teacher</Label>
-                  <Select value={formData.teacher_id} onValueChange={(val) => handleFormChange('teacher_id', val)}>
-                    <SelectTrigger><SelectValue placeholder={teachers.length === 0 ? "No teachers available" : "Select teacher"} /></SelectTrigger>
-                    <SelectContent>
-                      {teachers.length === 0 ? (
-                        <SelectItem disabled value="no-teachers">No teachers available</SelectItem>
-                      ) : (
-                        teachers.map(t => <SelectItem key={t.id} value={String(t.id)}>{t.name}</SelectItem>)
-                      )}
-                    </SelectContent>
-                  </Select>
-                </div>
-                <div className="grid grid-cols-2 gap-2">
-                  <div className="space-y-1">
-                    <Label htmlFor="edit_grade">Grade</Label>
-                    <Select value={formData.grade} onValueChange={(val) => handleFormChange('grade', val)}>
-                      <SelectTrigger><SelectValue placeholder="Select grade" /></SelectTrigger>
-                      <SelectContent>
-                        {gradeLevels.map(grade => (
-                          <SelectItem key={grade} value={grade}>{grade}</SelectItem>
-                        ))}
-                      </SelectContent>
-                    </Select>
-                  </div>
-                  <div className="space-y-1">
-                    <Label htmlFor="edit_class_section">Section (Stream)</Label>
-                    <Input
-                      id="edit_class_section"
-                      value={formData.class_section}
-                      onChange={(e) => handleFormChange('class_section', e.target.value)}
-                      placeholder="e.g., A, B"
-                    />
-                  </div>
-                </div>
-                <div className="space-y-1">
-                  <Label htmlFor="edit_room">Room</Label>
-                  <Input
-                    id="edit_room"
-                    value={formData.classroom}
-                    onChange={(e) => handleFormChange('classroom', e.target.value)}
-                    placeholder="e.g., Room 101"
-                  />
-                </div>
-
-                {/* Accessibility Features Section in Edit */}
-                <div className="p-3 bg-slate-50 border rounded-xl space-y-3 mt-2">
-                  <div className="flex items-center justify-between">
-                    <div className="space-y-0.5">
-                      <Label className="text-xs font-semibold text-slate-900 cursor-pointer" htmlFor="edit_is_accessible_track">
-                        Special Education / Adaptive Session
-                      </Label>
-                    </div>
-                    <input
-                      id="edit_is_accessible_track"
-                      type="checkbox"
-                      className="h-4 w-4 rounded border-slate-300 text-emerald-600 focus:ring-emerald-500 cursor-pointer accent-emerald-600"
-                      checked={formData.is_accessible_track}
-                      onChange={(e) => handleFormChange('is_accessible_track', e.target.checked)}
-                    />
-                  </div>
-                  if ({formData.is_accessible_track && (
-  <div className="space-y-1 animate-in fade-in duration-200">
-    <Label htmlFor="edit_accommodation_type" className="text-xs">Accommodation Overlay Engine</Label>
-    <Select value={formData.accommodation_type} onValueChange={(val) => handleFormChange('accommodation_type', val)}>
-      <SelectTrigger id="edit_accommodation_type" className="bg-white h-9 text-xs">
-        <SelectValue placeholder="Select impairment track parameters" />
-      </SelectTrigger>
-      <SelectContent>
-        <SelectItem value="hearing_ksl">Kenyan Sign Language (KSL Interpreter Engaged)</SelectItem>
-        <SelectItem value="visual_braille">Braille Tactile / Voice Reader Engine Active</SelectItem>
-        <SelectItem value="mobility_switch">Mobility Accommodation / Switch Scanning Sequence</SelectItem>
-      </SelectContent>
-    </Select>
-  </div>
-)}
-                  )
-                </div>
-
-                {renderFormError(formError)}
-              </div>
-              <DialogFooter className="mt-2">
-                <Button type="button" variant="outline" onClick={() => setIsEditDialogOpen(false)}>
-                  Cancel
-                </Button>
-                <Button type="submit" disabled={isSubmitting}>
-                  {isSubmitting && <Loader2 className="w-4 h-4 mr-2 animate-spin" />}
-                  Update Entry
-                </Button>
-              </DialogFooter>
-            </form>
-          </DialogContent>
-        </Dialog>
-      )}
-    </div>
+                <DialogFooter>
+                  <Button type="button" variant="outline" onClick={() => setIsEditDialogOpen(false)}>Cancel</Button>
+                  <Button type="submit" disabled={isSubmitting}>
+                    {isSubmitting && <Loader2 className="w-4 h-4 mr-2 animate-spin" />}
+                    Update Entry
+                  </Button>
+                </DialogFooter>
+              </form>
+            </DialogContent>
+          </Dialog>
+        )}
+      </div>
+    </>
   )
 }
 
-interface ClassCardWithActionsProps {
+// ─────────────────── ClassCard sub-component ─────────────────────
+
+interface ClassCardProps {
   entry: TimetableEntry
   colorStyle: string
-  labelColorStyle: string
+  labelStyle: string
   canManage: boolean
   onEdit: () => void
   onDelete: () => void
 }
 
-function ClassCardWithActions({ entry, colorStyle, labelColorStyle, canManage, onEdit, onDelete }: ClassCardWithActionsProps) {
-  const [showDelete, setShowDelete] = React.useState(false)
+function ClassCard({ entry, colorStyle, labelStyle, canManage, onEdit, onDelete }: ClassCardProps) {
+  const [showDeleteAlert, setShowDeleteAlert] = useState(false)
 
   return (
-    <div className={`h-full w-full rounded-r-md border-l-[6px] p-2 lg:p-3 shadow-sm hover:shadow-md transition-shadow cursor-pointer flex flex-col justify-between relative group ${colorStyle}`}>
-      <div className="absolute top-1 lg:top-2 right-1 lg:right-2 opacity-0 group-hover:opacity-50">
-        <div className="bg-white/40 p-1 rounded-full">
-          <MoreHorizontal size={12} className="lg:hidden" />
-          <MoreHorizontal size={14} className="hidden lg:block" />
-        </div>
-      </div>
-
-      <div className="space-y-0.5">
-        <h3 className="font-bold text-xs lg:text-sm leading-tight line-clamp-2 flex items-center gap-1">
+    <div className={`h-full rounded-r-md border-l-4 p-2 shadow-sm hover:shadow-md transition-shadow flex flex-col justify-between relative group ${colorStyle}`}>
+      <div>
+        <h3 className={`font-bold text-xs leading-tight line-clamp-2 mb-1 ${labelStyle}`}>
           {entry.course_name}
-          {entry.is_accessible_track && <Accessibility size={13} className="text-emerald-700 animate-pulse flex-shrink-0" />}
         </h3>
-      </div>
-
-      <div className={`text-xs space-y-0.5 lg:space-y-1 ${labelColorStyle} font-medium opacity-90`}>
         {entry.class_section && (
-          <div className="font-bold text-[10px] uppercase">Section: {entry.class_section}</div>
+          <span className="text-[9px] font-bold uppercase text-slate-500">§ {entry.class_section}</span>
         )}
-        <div className="flex items-center gap-0.5 lg:gap-1 truncate">
-          <User size={10} className="flex-shrink-0 lg:w-3 lg:h-3" /> <span className="truncate text-[11px] lg:text-xs">{entry.teacher_name || 'N/A'}</span>
-        </div>
-        <div className="flex items-center gap-0.5 lg:gap-1 truncate">
-          <MapPin size={10} className="flex-shrink-0 lg:w-3 lg:h-3" /> <span className="truncate text-[11px] lg:text-xs">Rm: {entry.classroom}</span>
-        </div>
-        {entry.is_accessible_track && entry.accommodation_type !== 'none' && (
-          <div className="text-[9px] bg-white/60 p-0.5 rounded font-extrabold border border-emerald-200/40 truncate w-full mt-0.5 block">
-            {entry.accommodation_type === 'hearing_ksl' && '🧏 KSL Active'}
-            {entry.accommodation_type === 'visual_braille' && '👁️ Braille/Voice'}
-            {entry.accommodation_type === 'mobility_switch' && '🕹️ Switch Track'}
-          </div>
-        )}
+      </div>
+      <div className={`text-[10px] space-y-0.5 ${labelStyle} opacity-80`}>
+        <div className="flex items-center gap-0.5 truncate"><User size={9} className="flex-shrink-0" /> {entry.teacher_name || 'N/A'}</div>
+        <div className="flex items-center gap-0.5 truncate"><MapPin size={9} className="flex-shrink-0" /> {entry.classroom || '—'}</div>
       </div>
 
       {canManage && (
-        <div className="absolute inset-0 bg-black/0 hover:bg-black/5 rounded-r-md opacity-0 hover:opacity-100 transition-opacity flex items-center justify-center gap-2">
+        <div className="absolute inset-0 bg-black/0 hover:bg-black/5 rounded-r-md opacity-0 hover:opacity-100 transition-opacity flex items-center justify-center gap-1.5">
           <button
-            onClick={(e: React.MouseEvent<HTMLButtonElement>) => {
-              e.stopPropagation()
-              onEdit()
-            }}
-            className="p-1 bg-white rounded-full shadow hover:shadow-md"
+            onClick={e => { e.stopPropagation(); onEdit() }}
+            className="p-1.5 bg-white rounded-full shadow hover:shadow-md"
           >
-            <Edit size={14} className="text-slate-600" />
+            <Edit size={12} className="text-slate-600" />
           </button>
-          <AlertDialog open={showDelete} onOpenChange={setShowDelete}>
+
+          <AlertDialog open={showDeleteAlert} onOpenChange={setShowDeleteAlert}>
             <AlertDialogTrigger asChild>
               <button
-                onClick={(e: React.MouseEvent<HTMLButtonElement>) => e.stopPropagation()}
-                className="p-1 bg-white rounded-full shadow hover:shadow-md"
+                onClick={e => e.stopPropagation()}
+                className="p-1.5 bg-white rounded-full shadow hover:shadow-md"
               >
-                <Trash2 size={14} className="text-red-600" />
+                <Trash2 size={12} className="text-red-600" />
               </button>
             </AlertDialogTrigger>
             <AlertDialogContent>
               <AlertDialogHeader>
                 <AlertDialogTitle>Delete Entry</AlertDialogTitle>
                 <AlertDialogDescription>
-                  Are you sure you want to delete this timetable entry? This action cannot be undone.
+                  Remove <strong>{entry.course_name}</strong> from the timetable? This cannot be undone.
                 </AlertDialogDescription>
               </AlertDialogHeader>
               <AlertDialogFooter>
                 <AlertDialogCancel>Cancel</AlertDialogCancel>
-                <AlertDialogAction onClick={() => onDelete()} className="bg-red-600 hover:bg-red-700">
+                <AlertDialogAction
+                  onClick={() => { onDelete(); setShowDeleteAlert(false) }}
+                  className="bg-red-600 hover:bg-red-700"
+                >
                   Delete
                 </AlertDialogAction>
               </AlertDialogFooter>

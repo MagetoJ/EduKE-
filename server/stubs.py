@@ -2,13 +2,16 @@ from fastapi import APIRouter
 
 router = APIRouter(prefix="/api", tags=["Temporary Stubs"])
 
-# Map all missing GET requests here so they return an empty array {"data": []}
-@router.get("/staff")
-@router.get("/courses")
+# ─────────────────────────────────────────────────────────────────────────────
+# IMPORTANT: Do NOT add /timetable or /timetable/periods here.
+# Those routes are handled by timetables.py (prefix="/timetable") and get
+# registered at /api/timetable by main.py.  Stubs here would shadow the real
+# router and always return {"data": []}, silently breaking the timetable page.
+# ─────────────────────────────────────────────────────────────────────────────
+
+
 @router.get("/assignments")
 @router.get("/exams")
-@router.get("/timetable")
-@router.get("/timetable/periods")
 @router.get("/messages")
 @router.get("/academic-years")
 @router.get("/fee-structures")

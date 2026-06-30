@@ -1,5 +1,6 @@
 from stubs import router as stubs_router
 from fastapi import FastAPI, Depends, HTTPException, status, Request
+from courses import router as courses_router
 from fastapi.exceptions import RequestValidationError  # Added for input validation handling
 from assignments import router as assignments_router
 from library import router as library_router
@@ -48,6 +49,21 @@ logger = logging.getLogger(__name__)
 
 app = FastAPI(title="EduKE API", version="1.0.0", redirect_slashes=False)
 
+# FIX: CORS middleware must be added BEFORE routers so it runs on every request,
+# including auth failures that short-circuit before hitting a route handler.
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=[
+        "https://eduke.netlify.app",
+        "http://localhost:5173", 
+        "https://eduke.app",
+        "https://www.eduke.app",
+    ],
+    allow_credentials=True,
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
+
 # Include Routers
 app.include_router(students_router, prefix="/api", dependencies=[Depends(get_current_user)])
 app.include_router(payments_router, prefix="/api", dependencies=[Depends(get_current_user)])
@@ -64,20 +80,7 @@ app.include_router(transport_router, dependencies=[Depends(get_current_user)])
 app.include_router(library_router, dependencies=[Depends(get_current_user)])
 app.include_router(leave_router, prefix="/api", dependencies=[Depends(get_current_user)])
 app.include_router(notifications_router, prefix="/api", dependencies=[Depends(get_current_user)])
-
-# CORS configuration
-app.add_middleware(
-    CORSMiddleware,
-    allow_origins=[
-        "https://eduke.netlify.app",
-        "http://localhost:5173", 
-        "https://eduke.app",
-        "https://www.eduke.app",
-    ],
-    allow_credentials=True,
-    allow_methods=["*"],
-    allow_headers=["*"],
-)
+app.include_router(courses_router, prefix="/api", dependencies=[Depends(get_current_user)])
 
 # ==================== EXCEPTION HANDLERS ====================
 
@@ -322,8 +325,20 @@ async def refresh_token(data: RefreshRequest, request: Request):
 @app.get("/api/staff/")
 async def list_school_staff(
     db: AsyncSession = Depends(get_db),
-    current_school: School = Depends(get_current_school)
+    token_data: tuple = Depends(get_current_user),  # FIX: explicit auth dependency
+    current_school: Optional[School] = Depends(get_current_school)
 ):
+    """
+    Fetches all staff members belonging to the current school tenant.
+    Returns a unified response envelope with dynamically joined multi-tenant fields.
+    """
+    # FIX: Super admins with no school scope get an empty list rather than all users
+    if not current_school:
+        return {"success": True, "data": []}
+
+    # FIX: Use inner join (join) instead of outerjoin so only users actually
+    # linked to this school are returned. outerjoin was leaking unaffiliated
+    # users (e.g. super admins) into every school's staff list.
     query = select(
         User.id,
         User.full_name.label("name"),
@@ -341,19 +356,37 @@ async def list_school_staff(
     
     staff_list = []
     for row in rows:
-        # Safeguard Enum string comparisons
-        role_str = str(row.role.value if hasattr(row.role, 'value') else row.role).lower()
+        # Extract role property safely — handles all SQLAlchemy/driver enum formats:
+        #   Python enum object : UserRole.TEACHER   -> .value  -> "teacher"
+        #   Prefixed string    : "UserRole.TEACHER" -> split   -> "teacher"
+        #   Uppercase string   : "TEACHER"          -> lower   -> "teacher"
+        #   Clean string       : "teacher"          -> lower   -> "teacher"
+        raw_role = row[3]   # school_users.c.role
+        raw_active = row[4] if row[4] is not None else True  # school_users.c.is_active
+
+        if raw_role is None:
+            role_str = "staff"
+        elif hasattr(raw_role, 'value'):
+            # Python enum instance — .value is already the clean string e.g. "teacher"
+            role_str = str(raw_role.value).lower().strip()
+        else:
+            role_str = str(raw_role).lower().strip()
+            # Remove any "userrole." prefix that some DB drivers include
+            if "userrole." in role_str:
+                role_str = role_str.split("userrole.")[-1].strip()
+
+        # Filter out non-staff roles
         if role_str in ["student", "parent"]:
             continue
             
         staff_list.append({
-            "id": str(row.id),
-            "name": row.name or "",
-            "email": row.email,
+            "id": str(row[0]),   # User.id
+            "name": row[1] or "",  # User.full_name
+            "email": row[2] or "",  # User.email
             "phone": "",
             "role": role_str,
-            "department": "Administration" if role_str == "admin" else "Academics",
-            "status": "Active" if row.is_active else "Inactive",
+            "department": "Administration" if role_str in ["admin", "hr_manager", "registrar"] else "Academics",
+            "status": "Active" if raw_active else "Inactive",
             "hire_date": None,
             "class_assigned": None,
             "subject": None
@@ -361,12 +394,11 @@ async def list_school_staff(
         
     return {"success": True, "data": staff_list}
 
-# ==================== BASIC ROUTES ====================
-
 @app.get("/api/health")
 async def health_check():
     """Platform health check"""
     return {"status": "healthy", "service": "EduKE API"}
+
 
 @app.get("/api/schools")
 async def list_schools_compatibility(

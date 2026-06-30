@@ -85,6 +85,14 @@ export default function Staff() {
     status: ''
   })
 
+  const extractStaffArray = (data: any): any[] => {
+    if (!data) return [];
+    if (data.success && Array.isArray(data.data)) return data.data;
+    if (Array.isArray(data)) return data;
+    if (data.data && Array.isArray(data.data)) return data.data;
+    return [];
+  };
+
   useEffect(() => {
     const fetchStaff = async () => {
       try {
@@ -92,18 +100,18 @@ export default function Staff() {
         const response = await api('/api/staff')
         const data = await response.json()
 
-        if (response.ok && data.success) {
-          const mappedStaff: StaffMember[] = data.data.map((member: Record<string, unknown>) => {
+        if (response.ok) {
+          const staffArray = extractStaffArray(data);
+          const mappedStaff: StaffMember[] = staffArray.map((member: Record<string, unknown>) => {
             const rawRole = member.role as string || '';
             const rawStatus = member.status as string || 'Active';
             
-            // FIX: Gracefully converts multi-word roles (e.g., class_teacher -> Class Teacher)
             const formattedRole = rawRole
               ? rawRole.split('_').map(word => word.charAt(0).toUpperCase() + word.slice(1)).join(' ')
               : 'Staff';
 
             return {
-              id: String(member.id), // FIX: Keep ID representation consistently as a string
+              id: String(member.id),
               name: String(member.name || `${member.first_name || ''} ${member.last_name || ''}`).trim(),
               email: String(member.email || ''),
               phone: String(member.phone || ''),
@@ -118,7 +126,7 @@ export default function Staff() {
           })
           setStaff(mappedStaff)
         } else {
-          throw new Error(data.error || `HTTP ${response.status}: ${response.statusText}`)
+          throw new Error(data?.error || `HTTP ${response.status}: ${response.statusText}`)
         }
       } catch (err) {
         console.error('Error fetching staff:', err)
@@ -152,7 +160,7 @@ export default function Staff() {
           })
           setLeaveRequests(mappedRequests)
         } else {
-          throw new Error(data.error || `HTTP ${response.status}: ${response.statusText}`)
+          throw new Error(data?.error || `HTTP ${response.status}: ${response.statusText}`)
         }
       } catch (err) {
         console.error('Error fetching leave requests:', err)
@@ -242,15 +250,16 @@ export default function Staff() {
         const data = await response.json()
 
         if (!response.ok) {
-          throw new Error(data.error || 'Failed to create teacher account.')
+          throw new Error(data?.error || 'Failed to create teacher account.')
         }
       }
 
       const response = await api('/api/staff')
       const staffData = await response.json()
       
-      if (response.ok && staffData.success) {
-        const mappedStaff: StaffMember[] = staffData.data.map((member: Record<string, unknown>) => {
+      if (response.ok) {
+        const staffArray = extractStaffArray(staffData);
+        const mappedStaff: StaffMember[] = staffArray.map((member: Record<string, unknown>) => {
           const rawRole = member.role as string || '';
           const rawStatus = member.status as string || 'Active';
           const formattedRole = rawRole
@@ -324,14 +333,15 @@ export default function Staff() {
       const data = await response.json()
 
       if (!response.ok) {
-        throw new Error(data.error || 'Failed to update staff member')
+        throw new Error(data?.error || 'Failed to update staff member')
       }
 
       const updatedStaff = await api('/api/staff')
       const updatedData = await updatedStaff.json()
       
-      if (updatedStaff.ok && updatedData.success) {
-        const mappedStaff: StaffMember[] = updatedData.data.map((member: Record<string, unknown>) => {
+      if (updatedStaff.ok) {
+        const staffArray = extractStaffArray(updatedData);
+        const mappedStaff: StaffMember[] = staffArray.map((member: Record<string, unknown>) => {
           const rawRole = member.role as string || '';
           const rawStatus = member.status as string || 'Active';
           const formattedRole = rawRole
@@ -370,7 +380,7 @@ export default function Staff() {
 
       const data = await response.json();
       if (!response.ok) {
-        throw new Error(data.error || 'Failed to deactivate staff member');
+        throw new Error(data?.error || 'Failed to deactivate staff member');
       }
 
       setStaff(prev =>

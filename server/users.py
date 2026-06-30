@@ -10,6 +10,22 @@ from auth import get_current_school, get_password_hash
 
 router = APIRouter(prefix="/users", tags=["User Management"])
 
+# --- Helper to map frontend roles to database UserRoles ---
+def map_frontend_role_to_db_role(raw_role: str) -> UserRole:
+    raw_role = raw_role.lower()
+    if raw_role in ["teacher", "class_teacher", "hod", "cbc_coordinator", "exam_officer"]:
+        return UserRole.TEACHER
+    elif raw_role in ["administrator"]:
+        return UserRole.ADMIN
+    elif raw_role in ["student"]:
+        return UserRole.STUDENT
+    elif raw_role in ["parent"]:
+        return UserRole.PARENT
+    else:
+        # registrar, timetable_manager, transport_manager, boarding_master, hr_manager, etc.
+        return UserRole.STAFF
+
+
 # --- Schemas ---
 class UserCreate(BaseModel):
     username: Optional[str] = None
@@ -17,7 +33,13 @@ class UserCreate(BaseModel):
     full_name: Optional[str] = None
     name: Optional[str] = None  # Added to capture parameter variations sent by frontend forms
     password: str
-    role: UserRole
+    role: str # Changed to str to accept frontend values like "class_teacher"
+    
+    # Accept extra fields sent by frontend to prevent Pydantic validation errors
+    phone: Optional[str] = None
+    school_id: Optional[int] = None
+    class_assigned: Optional[str] = None
+    subject: Optional[str] = None
 
     @model_validator(mode="before")
     @classmethod
@@ -86,23 +108,28 @@ async def create_school_user(
     if existing_email.scalar_one_or_none():
         raise HTTPException(status_code=400, detail="Email already registered")
 
-    # 2. Create the User with fallback resolution for fields
+    # 2. Map the frontend role (e.g. 'class_teacher') to standard DB enum (e.g. UserRole.TEACHER)
+    mapped_role = map_frontend_role_to_db_role(data.role)
+
+    # 3. Create the User with fallback resolution for fields
     hashed_password = get_password_hash(data.password)
     new_user = User(
         username=data.username or str(data.email),
         email=data.email,
         full_name=data.full_name or data.name or "",
         hashed_password=hashed_password
+        # Note: If you add `phone` to your models.py User class in the future, 
+        # you can pass `phone=data.phone` here.
     )
     db.add(new_user)
     await db.flush() # Get user ID
 
-    # 3. Link User to School
+    # 4. Link User to School
     await db.execute(
         insert(school_users).values(
             school_id=current_school.id,
             user_id=new_user.id,
-            role=data.role,
+            role=mapped_role,
             is_active=True
         )
     )
