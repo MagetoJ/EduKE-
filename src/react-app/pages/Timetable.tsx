@@ -1,7 +1,7 @@
 import React, { useState, useEffect, useRef } from 'react'
 import {
   Plus, Edit, Trash2, Loader2, AlertCircle, User, MapPin,
-  Printer, Download, X, BookOpen, Clock
+  Printer, Download, BookOpen, Clock
 } from 'lucide-react'
 import { Button } from '../components/ui/button'
 import {
@@ -925,7 +925,7 @@ export default function Timetable() {
                             {period.is_break ? 'Break time' : 'No class scheduled'}
                           </p>
                         ) : (
-                          entries.map((entry, idx) => {
+                          entries.map((entry) => {
                             const color = colorForCourse(entry.course_id)
                             return (
                               <div key={entry.id} className={`rounded-md p-2.5 text-sm ${COLOR_CELL[color]} border-l-4 mb-2 last:mb-0`}>
