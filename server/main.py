@@ -37,6 +37,7 @@ from users import router as users_router
 from exams import router as exams_router
 from timetables import router as timetables_router
 from attendance import router as attendance_router
+from discipline import router as discipline_router
 from platform_admin import router as platform_router
 from dashboard import router as dashboard_router
 from leave_requests import router as leave_router
@@ -72,6 +73,7 @@ app.include_router(users_router, prefix="/api", dependencies=[Depends(get_curren
 app.include_router(exams_router, prefix="/api", dependencies=[Depends(get_current_user)])
 app.include_router(timetables_router, prefix="/api", dependencies=[Depends(get_current_user)])
 app.include_router(attendance_router, prefix="/api", dependencies=[Depends(get_current_user)])
+app.include_router(discipline_router, dependencies=[Depends(get_current_user)])
 app.include_router(platform_router, prefix="/api", dependencies=[Depends(get_current_user)])
 app.include_router(dashboard_router, prefix="/api", dependencies=[Depends(get_current_user)])
 app.include_router(stubs_router, dependencies=[Depends(get_current_user)])

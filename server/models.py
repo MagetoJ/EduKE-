@@ -600,3 +600,23 @@ class AssignmentSubmission(Base):
     assignment = relationship("Assignment", back_populates="submissions")
     student = relationship("Student")
     grader = relationship("User", foreign_keys=[graded_by])
+
+# ==================== DISCIPLINE ====================
+
+class DisciplineRecord(Base):
+    """Student disciplinary incidents reported by teachers"""
+    __tablename__ = "discipline_records"
+
+    id            = Column(Integer, primary_key=True, index=True)
+    school_id     = Column(Integer, ForeignKey("schools.id"), nullable=False)
+    student_id    = Column(Integer, ForeignKey("students.id"), nullable=False)
+    reported_by   = Column(Integer, ForeignKey("users.id"), nullable=False)
+    incident_type = Column(String(100), nullable=False)
+    severity      = Column(String(20), default="Minor")   # Minor | Moderate | Major
+    description   = Column(Text)
+    status        = Column(String(30), default="Open")    # Open | Resolved | Escalated
+    date          = Column(Date, default=datetime.utcnow)
+    created_at    = Column(DateTime, default=datetime.utcnow)
+
+    student  = relationship("Student")
+    reporter = relationship("User")

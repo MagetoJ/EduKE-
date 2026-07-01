@@ -10,7 +10,7 @@ router = APIRouter(prefix="/api", tags=["Temporary Stubs"])
 # ─────────────────────────────────────────────────────────────────────────────
 
 
-@router.get("/assignments")
+
 @router.get("/exams")
 @router.get("/messages")
 @router.get("/academic-years")
