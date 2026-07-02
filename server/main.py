@@ -73,7 +73,7 @@ app.include_router(users_router, prefix="/api", dependencies=[Depends(get_curren
 app.include_router(exams_router, prefix="/api", dependencies=[Depends(get_current_user)])
 app.include_router(timetables_router, prefix="/api", dependencies=[Depends(get_current_user)])
 app.include_router(attendance_router, prefix="/api", dependencies=[Depends(get_current_user)])
-app.include_router(discipline_router, dependencies=[Depends(get_current_user)])
+app.include_router(discipline_router, prefix="/api", dependencies=[Depends(get_current_user)])
 app.include_router(platform_router, prefix="/api", dependencies=[Depends(get_current_user)])
 app.include_router(dashboard_router, prefix="/api", dependencies=[Depends(get_current_user)])
 app.include_router(stubs_router, dependencies=[Depends(get_current_user)])
@@ -83,6 +83,7 @@ app.include_router(library_router, dependencies=[Depends(get_current_user)])
 app.include_router(leave_router, prefix="/api", dependencies=[Depends(get_current_user)])
 app.include_router(notifications_router, prefix="/api", dependencies=[Depends(get_current_user)])
 app.include_router(courses_router, prefix="/api", dependencies=[Depends(get_current_user)])
+
 
 # ==================== EXCEPTION HANDLERS ====================
 

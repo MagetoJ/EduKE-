@@ -620,3 +620,23 @@ class DisciplineRecord(Base):
 
     student  = relationship("Student")
     reporter = relationship("User")
+
+
+# ==================== NOTIFICATIONS ====================
+
+class Notification(Base):
+    """User notifications triggered across different application modules"""
+    __tablename__ = "notifications"
+
+    id                = Column(Integer, primary_key=True, index=True)
+    school_id         = Column(Integer, ForeignKey("schools.id", ondelete="CASCADE"), nullable=False)
+    user_id           = Column(Integer, ForeignKey("users.id", ondelete="CASCADE"), nullable=False)
+    title             = Column(String(255), nullable=False)
+    message           = Column(Text, nullable=False)
+    notification_type = Column(String(50), default="info")  # info | success | warning | error
+    link_url          = Column(Text, nullable=True)          # Optional redirection path
+    is_read           = Column(Boolean, default=False)
+    created_at        = Column(DateTime, default=datetime.utcnow)
+
+    school = relationship("School")
+    user   = relationship("User")

@@ -1,4 +1,4 @@
-from fastapi import APIRouter, Depends, HTTPException, Query
+from fastapi import APIRouter, Depends, HTTPException, Query, status
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select, and_
 from typing import List, Optional
@@ -9,7 +9,8 @@ from database import get_db
 from models import Attendance, Student, School
 from auth import get_current_school, get_current_user
 
-router = APIRouter(prefix="/attendance", tags=["Attendance"])
+# Prefix aligns with frontend fetch calls to /api/teacher/attendance
+router = APIRouter(prefix="/teacher/attendance", tags=["Attendance"])
 
 # ─── Schemas ────────────────────────────────────────────────────────────────────
 
@@ -28,7 +29,7 @@ class AttendanceResponse(BaseModel):
     class Config:
         from_attributes = True
 
-# The shape the TeacherDashboard's loadRoster() expects inside the envelope
+# Matches shape expected inside the React TeacherDashboard roster payload
 class RosterStudent(BaseModel):
     id: str
     name: str
@@ -37,19 +38,20 @@ class RosterStudent(BaseModel):
     status: str
     recordedAt: Optional[str] = None
 
-# The shape saveAttendance() POSTs
+# Matches shape POSTed by saveAttendance() on frontend
 class AttendanceEntry(BaseModel):
-    studentId: int       # camelCase — matches what the frontend sends
+    studentId: int       # camelCase matching frontend state serialization
     status: str
 
 class SaveAttendancePayload(BaseModel):
     date: str
     attendance: List[AttendanceEntry]
 
-# ─── Routes ─────────────────────────────────────────────────────────────────────
+# ─── Configuration ─────────────────────────────────────────────────────────────
 
 VALID_STATUSES = ["Present", "Absent", "Late", "Excused", "Not Marked"]
 
+# ─── Routes ─────────────────────────────────────────────────────────────────────
 
 @router.get("/roster")
 async def get_attendance_roster(
@@ -59,23 +61,21 @@ async def get_attendance_roster(
     token_data: tuple = Depends(get_current_user),
 ):
     """
-    GET /api/attendance/teacher/attendance/roster?date=YYYY-MM-DD
-    Returns every student in the school with their attendance status for that date.
-    Frontend (TeacherDashboard) consumes: { students: RosterStudent[], statuses: str[] }
+    GET /api/teacher/attendance/roster?date=YYYY-MM-DD
+    Returns all students tied to the current school tenant with their attendance statuses.
     """
-    # Parse the requested date (default today)
     try:
         roster_date = date_type.fromisoformat(date) if date else datetime.utcnow().date()
     except (ValueError, TypeError):
         roster_date = datetime.utcnow().date()
 
-    # All students for this school
+    # Get all students for this school ordered alphabetically
     students_result = await db.execute(
         select(Student).where(Student.school_id == current_school.id).order_by(Student.last_name)
     )
     students = students_result.scalars().all()
 
-    # Existing attendance records for that date
+    # Get existing logs for the selected date
     att_result = await db.execute(
         select(Attendance).where(
             and_(
@@ -84,7 +84,6 @@ async def get_attendance_roster(
             )
         )
     )
-    # keyed by student_id string for easy lookup
     existing = {str(a.student_id): a for a in att_result.scalars().all()}
 
     roster = []
@@ -95,8 +94,7 @@ async def get_attendance_roster(
             "id": sid,
             "name": f"{s.first_name} {s.last_name}",
             "grade": getattr(s, "grade", None) or "",
-            # Student model has no class_section column — leave blank for now
-            "classSection": "",
+            "classSection": getattr(s, "class_section", None) or "",
             "status": att.status.capitalize() if att else "Not Marked",
             "recordedAt": att.date.isoformat() if att else None,
         })
@@ -108,6 +106,8 @@ async def get_attendance_roster(
     }
 
 
+@router.post("")
+@router.post("/")
 @router.post("/save")
 async def save_teacher_attendance(
     payload: SaveAttendancePayload,
@@ -115,17 +115,15 @@ async def save_teacher_attendance(
     current_school: School = Depends(get_current_school),
 ):
     """
-    POST /api/attendance/teacher/attendance
-    Body: { date: 'YYYY-MM-DD', attendance: [{ studentId, status }] }
-    Upserts one Attendance row per student per date — re-submitting the same date
-    updates the existing record rather than duplicating.
+    POST /api/teacher/attendance
+    Upserts one Attendance record per student per date to avoid duplicates on re-submission.
     """
     try:
         record_date = date_type.fromisoformat(payload.date)
     except ValueError:
         record_date = datetime.utcnow().date()
 
-    # Build set of valid student ids for this school (security check)
+    # Tenant sandbox check: ensure student IDs belong to this school
     valid_result = await db.execute(
         select(Student.id).where(Student.school_id == current_school.id)
     )
@@ -134,13 +132,13 @@ async def save_teacher_attendance(
     saved = 0
     for entry in payload.attendance:
         if entry.studentId not in valid_ids:
-            continue  # silently skip students not belonging to this school
+            continue  # Silently drop data pollution across sub-tenants
 
         status = entry.status.capitalize()
         if status not in VALID_STATUSES:
             status = "Present"
 
-        # Upsert: update if exists, otherwise insert
+        # Lookup existing entry for safe atomic mutations
         existing_result = await db.execute(
             select(Attendance).where(
                 and_(
@@ -151,6 +149,7 @@ async def save_teacher_attendance(
             )
         )
         existing = existing_result.scalar_one_or_none()
+        
         if existing:
             existing.status = status
         else:
@@ -164,7 +163,7 @@ async def save_teacher_attendance(
 
     await db.commit()
 
-    # Return the refreshed roster so the UI updates immediately after saving
+    # Re-fetch the layout roster snapshot to provide instant UI hydration after updates
     att_result = await db.execute(
         select(Attendance).where(
             and_(
@@ -178,6 +177,7 @@ async def save_teacher_attendance(
     students_result = await db.execute(
         select(Student).where(Student.school_id == current_school.id).order_by(Student.last_name)
     )
+    
     roster = []
     for s in students_result.scalars().all():
         sid = str(s.id)
@@ -186,63 +186,14 @@ async def save_teacher_attendance(
             "id": sid,
             "name": f"{s.first_name} {s.last_name}",
             "grade": getattr(s, "grade", None) or "",
-            "classSection": "",
+            "classSection": getattr(s, "class_section", None) or "",
             "status": att.status.capitalize() if att else "Not Marked",
             "recordedAt": att.date.isoformat() if att else None,
         })
 
     return {
         "success": True,
-        "message": f"Saved {saved} attendance records",
+        "message": f"Saved {saved} attendance records successfully",
         "students": roster,
         "statuses": VALID_STATUSES,
     }
-
-
-# ─── Legacy batch route (kept for backwards compat) ─────────────────────────────
-
-@router.post("")
-@router.post("/")
-async def record_attendance_batch(
-    records: List[AttendanceCreate],
-    db: AsyncSession = Depends(get_db),
-    current_school: School = Depends(get_current_school),
-):
-    """Batch record attendance (original route kept for compatibility)"""
-    today = datetime.utcnow().date()
-    for entry in records:
-        stud = await db.execute(
-            select(Student).where(Student.id == entry.student_id, Student.school_id == current_school.id)
-        )
-        if not stud.scalar_one_or_none():
-            continue
-        db.add(Attendance(
-            school_id=current_school.id,
-            student_id=entry.student_id,
-            status=entry.status,
-            notes=entry.notes,
-            date=entry.date or today,
-        ))
-    await db.commit()
-    return {"message": f"Recorded {len(records)} attendance entries"}
-
-
-@router.get("/student/{student_id}", response_model=List[AttendanceResponse])
-async def get_student_attendance(
-    student_id: int,
-    db: AsyncSession = Depends(get_db),
-    current_school: School = Depends(get_current_school),
-):
-    """Attendance history for one student"""
-    stud = await db.execute(
-        select(Student).where(Student.id == student_id, Student.school_id == current_school.id)
-    )
-    if not stud.scalar_one_or_none():
-        raise HTTPException(status_code=404, detail="Student not found")
-
-    result = await db.execute(
-        select(Attendance)
-        .where(Attendance.student_id == student_id)
-        .order_by(Attendance.date.desc())
-    )
-    return result.scalars().all()

@@ -152,7 +152,7 @@ export default function TeacherDashboard() {
     setAttendanceSaving(true)
     setAttendanceError(null)
     try {
-      const response = await api('/api/teacher/attendance', {
+      const response = await api('/api/attendance/save', {
         method: 'POST',
         body: JSON.stringify({
           date: attendanceDate,
@@ -180,59 +180,62 @@ export default function TeacherDashboard() {
 
   useEffect(() => {
     const loadData = async () => {
-      try {
-        // Fetch courses for the teacher
-        const coursesRes = await api('/api/courses');
-        const coursesData = await coursesRes.json();
-        if (coursesData.data) {
-          setCourses(coursesData.data);
-        }
+      // Use Promise.allSettled so a single 404 (e.g. /discipline not yet implemented)
+      // doesn't crash the entire dashboard — each module loads independently.
+      const [coursesResult, assignmentsResult, examsResult, studentsResult, disciplineResult] =
+        await Promise.allSettled([
+          api('/api/courses').then(r => r.json()),
+          api('/api/assignments').then(r => r.json()),
+          api('/api/exams').then(r => r.json()),
+          api('/api/students').then(r => r.json()),
+          api('/api/discipline').then(r => r.json()),
+        ]);
 
-        // Fetch assignments for the teacher
-        const assignmentsRes = await api('/api/assignments');
-        const assignmentsData = await assignmentsRes.json();
-        if (assignmentsData.data) {
-          setAssignments(assignmentsData.data);
-        }
+      if (coursesResult.status === 'fulfilled' && coursesResult.value?.data) {
+        setCourses(coursesResult.value.data);
+      } else if (coursesResult.status === 'rejected') {
+        console.warn('Courses failed to load:', coursesResult.reason);
+      }
 
-        // Fetch exams for the teacher
-        const examsRes = await api('/api/exams');
-        const examsData = await examsRes.json();
-        if (examsData.data) {
-          setExams(examsData.data);
-        }
+      if (assignmentsResult.status === 'fulfilled' && assignmentsResult.value?.data) {
+        setAssignments(assignmentsResult.value.data);
+      } else if (assignmentsResult.status === 'rejected') {
+        console.warn('Assignments failed to load:', assignmentsResult.reason);
+      }
 
-        // Fetch students for the "My Students" tab
-        const studentRes = await api('/api/students');
-        const studentData = await studentRes.json();
-        if (studentData.data) {
-          setStudents(studentData.data.map((s: { id: number | string; first_name: string; last_name: string; grade: string; class_section?: string }) => ({
+      if (examsResult.status === 'fulfilled' && examsResult.value?.data) {
+        setExams(examsResult.value.data);
+      } else if (examsResult.status === 'rejected') {
+        console.warn('Exams failed to load:', examsResult.reason);
+      }
+
+      if (studentsResult.status === 'fulfilled' && studentsResult.value?.data) {
+        setStudents(
+          studentsResult.value.data.map((s: { id: number | string; first_name: string; last_name: string; grade: string; class_section?: string }) => ({
             id: s.id.toString(),
             name: `${s.first_name} ${s.last_name}`,
             grade: s.grade,
-            class: s.class_section || 'N/A'
-          })));
-        }
+            class: s.class_section || 'N/A',
+          }))
+        );
+      } else if (studentsResult.status === 'rejected') {
+        console.warn('Students failed to load:', studentsResult.reason);
+      }
 
-        // Fetch records for the "Discipline" tab
-        const disciplineRes = await api('/api/discipline');
-        const disciplineData = await disciplineRes.json();
-        if (disciplineData.data) {
-          setDisciplineRecords(disciplineData.data.map((d: { id: number; student_name: string; date: string; incident_type: string; severity: string; description: string; status: string }) => ({
+      if (disciplineResult.status === 'fulfilled' && disciplineResult.value?.data) {
+        setDisciplineRecords(
+          disciplineResult.value.data.map((d: { id: number; student_name: string; date: string; incident_type: string; severity: string; description: string; status: string }) => ({
             id: d.id,
-            studentName: d.student_name, // Assuming backend provides this
+            studentName: d.student_name,
             date: d.date,
             type: d.incident_type,
             severity: d.severity,
             description: d.description,
-            status: d.status
-          })));
-        }
-
-        // You can also fetch performance records here
-
-      } catch (err) {
-        console.error("Failed to load dashboard data", err);
+            status: d.status,
+          }))
+        );
+      } else if (disciplineResult.status === 'rejected') {
+        console.warn('Discipline records failed to load (endpoint may not be implemented yet):', disciplineResult.reason);
       }
     }
     loadData();
@@ -278,7 +281,6 @@ export default function TeacherDashboard() {
         method: 'POST',
         body: JSON.stringify({
           student_id: parseInt(disciplineForm.studentId),
-          teacher_id: 1, // Would come from logged-in user
           type: disciplineForm.type,
           severity: disciplineForm.severity,
           description: disciplineForm.description,
@@ -287,7 +289,6 @@ export default function TeacherDashboard() {
       })
 
       if (response.ok) {
-        alert('Discipline record added successfully')
         setDisciplineForm({
           studentId: '',
           type: '',
@@ -296,8 +297,23 @@ export default function TeacherDashboard() {
           date: new Date().toISOString().split('T')[0]
         })
         setIsDisciplineDialogOpen(false)
+        // Refresh discipline list so UI shows the new record immediately
+        const refreshed = await api('/api/discipline')
+        const refreshedData = await refreshed.json()
+        if (refreshedData.data) {
+          setDisciplineRecords(refreshedData.data.map((d: { id: number; student_name: string; date: string; incident_type: string; severity: string; description: string; status: string }) => ({
+            id: d.id,
+            studentName: d.student_name,
+            date: d.date,
+            type: d.incident_type,
+            severity: d.severity,
+            description: d.description,
+            status: d.status
+          })))
+        }
       } else {
-        alert('Error adding discipline record')
+        const errData = await response.json().catch(() => ({}))
+        alert(errData.detail || 'Error adding discipline record')
       }
     } catch (error) {
       console.error('Error submitting discipline:', error)

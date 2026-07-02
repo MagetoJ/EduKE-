@@ -9,7 +9,7 @@ from database import get_db
 from models import Student, School, DisciplineRecord
 from auth import get_current_school, get_current_user
 
-router = APIRouter(prefix="/api/discipline", tags=["Discipline"])
+router = APIRouter(prefix="/discipline", tags=["Discipline"])
 
 # ─── Schemas ────────────────────────────────────────────────────────────────────
 
