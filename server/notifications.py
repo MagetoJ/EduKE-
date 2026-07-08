@@ -6,7 +6,7 @@ from models import Notification
 from auth import get_current_user, get_current_school
 
 # Mounted with prefix="/api" in main.py → routes live at /api/notifications/...
-router = APIRouter(prefix="/dashboard", tags=["Dashboard"])
+router = APIRouter(prefix="/notifications", tags=["Notifications"])
 
 
 # ─── Helper — call from any route to push a notification ─────────────────────

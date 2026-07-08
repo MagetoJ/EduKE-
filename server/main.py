@@ -1,14 +1,14 @@
 from stubs import router as stubs_router
 from fastapi import FastAPI, Depends, HTTPException, status, Request
 from courses import router as courses_router
-from fastapi.exceptions import RequestValidationError  # Added for input validation handling
+from fastapi.exceptions import RequestValidationError
 from assignments import router as assignments_router
 from library import router as library_router
 from fastapi.responses import JSONResponse
 from fastapi.middleware.cors import CORSMiddleware
 from sqlalchemy.ext.asyncio import AsyncSession
-from sqlalchemy.exc import SQLAlchemyError  # Added for database exception handling
-from sqlalchemy import select, insert
+from sqlalchemy.exc import SQLAlchemyError
+from sqlalchemy import select, insert, update  # Added update here
 from datetime import timedelta
 from typing import Optional
 import logging
@@ -50,8 +50,7 @@ logger = logging.getLogger(__name__)
 
 app = FastAPI(title="EduKE API", version="1.0.0", redirect_slashes=False)
 
-# FIX: CORS middleware must be added BEFORE routers so it runs on every request,
-# including auth failures that short-circuit before hitting a route handler.
+# FIX: CORS middleware must be added BEFORE routers so it runs on every request
 app.add_middleware(
     CORSMiddleware,
     allow_origins=[
@@ -156,7 +155,7 @@ class SchoolRegister(BaseModel):
     schoolName: str
     is_special_needs: bool
     disability_category: Optional[str] = "none"
-    curriculum: Optional[str] = "CBC"  # Added as an optional field to prevent validation failure from frontend requests
+    curriculum: Optional[str] = "CBC"
     adminName: str
     email: str
     password: str
@@ -164,6 +163,15 @@ class SchoolRegister(BaseModel):
 class LoginRequest(BaseModel):
     email: str
     password: str
+
+# Added StaffUpdate Schema properly placed here
+class StaffUpdate(BaseModel):
+    name: Optional[str] = None
+    email: Optional[str] = None
+    phone: Optional[str] = None
+    role: Optional[str] = None
+    department: Optional[str] = None
+    is_active: Optional[bool] = None
 
 # ==================== AUTH ROUTES ====================
 
@@ -182,7 +190,6 @@ async def register_school(data: SchoolRegister, db: AsyncSession = Depends(get_d
     if existing_user.scalar_one_or_none():
         raise HTTPException(status_code=400, detail="Email already registered")
 
-    # Set properties conditionally, providing support for database layouts expecting curriculum tags
     school_kwargs = {
         "name": data.schoolName, 
         "slug": slug, 
@@ -322,26 +329,21 @@ async def refresh_token(data: RefreshRequest, request: Request):
 
     raise HTTPException(status_code=401, detail="Session expired - please login again")
 
-# ==================== STAFF DIRECTORY ALIAS ROUTE ====================
+# ==================== STAFF DIRECTORY ROUTES ====================
 
 @app.get("/api/staff")
 @app.get("/api/staff/")
 async def list_school_staff(
     db: AsyncSession = Depends(get_db),
-    token_data: tuple = Depends(get_current_user),  # FIX: explicit auth dependency
+    token_data: tuple = Depends(get_current_user),  
     current_school: Optional[School] = Depends(get_current_school)
 ):
     """
     Fetches all staff members belonging to the current school tenant.
-    Returns a unified response envelope with dynamically joined multi-tenant fields.
     """
-    # FIX: Super admins with no school scope get an empty list rather than all users
     if not current_school:
         return {"success": True, "data": []}
 
-    # FIX: Use inner join (join) instead of outerjoin so only users actually
-    # linked to this school are returned. outerjoin was leaking unaffiliated
-    # users (e.g. super admins) into every school's staff list.
     query = select(
         User.id,
         User.full_name.label("name"),
@@ -359,33 +361,25 @@ async def list_school_staff(
     
     staff_list = []
     for row in rows:
-        # Extract role property safely — handles all SQLAlchemy/driver enum formats:
-        #   Python enum object : UserRole.TEACHER   -> .value  -> "teacher"
-        #   Prefixed string    : "UserRole.TEACHER" -> split   -> "teacher"
-        #   Uppercase string   : "TEACHER"          -> lower   -> "teacher"
-        #   Clean string       : "teacher"          -> lower   -> "teacher"
-        raw_role = row[3]   # school_users.c.role
-        raw_active = row[4] if row[4] is not None else True  # school_users.c.is_active
+        raw_role = row[3]
+        raw_active = row[4] if row[4] is not None else True
 
         if raw_role is None:
             role_str = "staff"
         elif hasattr(raw_role, 'value'):
-            # Python enum instance — .value is already the clean string e.g. "teacher"
             role_str = str(raw_role.value).lower().strip()
         else:
             role_str = str(raw_role).lower().strip()
-            # Remove any "userrole." prefix that some DB drivers include
             if "userrole." in role_str:
                 role_str = role_str.split("userrole.")[-1].strip()
 
-        # Filter out non-staff roles
         if role_str in ["student", "parent"]:
             continue
             
         staff_list.append({
-            "id": str(row[0]),   # User.id
-            "name": row[1] or "",  # User.full_name
-            "email": row[2] or "",  # User.email
+            "id": str(row[0]),   
+            "name": row[1] or "",  
+            "email": row[2] or "", 
             "phone": "",
             "role": role_str,
             "department": "Administration" if role_str in ["admin", "hr_manager", "registrar"] else "Academics",
@@ -396,6 +390,57 @@ async def list_school_staff(
         })
         
     return {"success": True, "data": staff_list}
+
+
+@app.put("/api/staff/{staff_id}")
+async def update_staff_member(
+    staff_id: int,
+    data: StaffUpdate,
+    db: AsyncSession = Depends(get_db),
+    current_school: School = Depends(get_current_school)
+):
+    """Updates an existing staff member's details"""
+    
+    user_result = await db.execute(select(User).where(User.id == staff_id))
+    user = user_result.scalar_one_or_none()
+    
+    if not user:
+        raise HTTPException(status_code=404, detail="Staff member not found")
+
+    membership_result = await db.execute(
+        select(school_users).where(
+            school_users.c.user_id == staff_id,
+            school_users.c.school_id == current_school.id
+        )
+    )
+    membership = membership_result.first()
+    
+    if not membership:
+        raise HTTPException(status_code=403, detail="Staff member does not belong to this school")
+
+    if data.name is not None:
+        user.full_name = data.name
+    if data.email is not None:
+        user.email = data.email
+
+    update_values = {}
+    if data.role is not None:
+        update_values["role"] = data.role 
+    if data.is_active is not None:
+        update_values["is_active"] = data.is_active
+
+    if update_values:
+        await db.execute(
+            update(school_users).where(
+                school_users.c.user_id == staff_id,
+                school_users.c.school_id == current_school.id
+            ).values(**update_values)
+        )
+
+    await db.commit()
+    return {"success": True, "message": "Staff member updated successfully"}
+
+# ==================== SYSTEM ROUTES ====================
 
 @app.get("/api/health")
 async def health_check():

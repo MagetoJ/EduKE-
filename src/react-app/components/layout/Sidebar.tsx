@@ -154,6 +154,12 @@ const navItems: NavItem[] = [
     roles: ['admin', 'teacher', 'exam_officer', 'hod', 'cbc_coordinator']
   },
   {
+    title: 'Timetable Dashboard',
+    href: '/dashboard/timetable-manager',
+    icon: Calendar, // Or LayoutDashboard
+    roles: ['timetable_manager', 'admin'] // Visible to managers and admins
+  },
+  {
     title: 'Platform Admin',
     href: '/dashboard/platform-admin',
     icon: Shield,

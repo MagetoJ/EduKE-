@@ -14,7 +14,7 @@ import {
   Accessibility
 } from 'lucide-react'
 import { useApi, useAuth } from '../contexts/AuthContext'
-import { useNavigate } from 'react-router'
+import { useNavigate, Navigate } from 'react-router' // Added Navigate import
 
 type SchoolRecord = {
   id: string
@@ -93,7 +93,7 @@ export default function Dashboard() {
           const data = await response.json()
           setSchools(Array.isArray(data) ? data : (data.data || []))
         } else if ([
-          'admin', 'registrar', 'exam_officer', 'hod', 'timetable_manager', 
+          'admin', 'registrar', 'exam_officer', 'hod', 
           'transport_manager', 'boarding_master', 'cbc_coordinator', 
           'hr_manager', 'admission_officer', 'nurse'
         ].includes(user.role)) {
@@ -179,6 +179,11 @@ export default function Dashboard() {
   }, [students])
 
   if (!user) return null
+
+  // REDIRECT LOGIC FOR TIMETABLE MANAGER
+  if (user.role === 'timetable_manager') {
+    return <Navigate to="/dashboard/timetable-manager" replace />
+  }
 
   if (isLoading) {
     return <p className="text-sm text-muted-foreground p-6">Loading workspace nodes...</p>
@@ -487,7 +492,6 @@ export default function Dashboard() {
       case 'registrar':
       case 'exam_officer':
       case 'hod':
-      case 'timetable_manager':
       case 'transport_manager':
       case 'boarding_master':
       case 'cbc_coordinator':

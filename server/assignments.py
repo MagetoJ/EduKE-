@@ -1,5 +1,7 @@
+# server/assignments.py
 from fastapi import APIRouter, Depends, HTTPException
-from sqlalchemy.orm import Session
+from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy import select
 from database import get_db
 from models import Assignment, AssignmentSubmission, User, Student
 from auth import get_current_user
@@ -9,18 +11,50 @@ from typing import Optional
 
 router = APIRouter(prefix="/api/assignments", tags=["Assignments"])
 
-# Pydantic schema for grading input
 class GradeSubmissionRequest(BaseModel):
     grade: float
     feedback: Optional[str] = None
 
+@router.get("")
+@router.get("/")
+async def get_all_assignments(db: AsyncSession = Depends(get_db), current_user = Depends(get_current_user)):
+    """Fetch all assignments for the current user's school"""
+    user, payload = current_user  # Unpack both user and the JWT payload
+    school_id = payload.get("school_id") # Get school_id from the token
+    
+    if not school_id:
+        return {"data": []}
+        
+    result = await db.execute(
+        select(Assignment).where(Assignment.school_id == school_id)
+    )
+    assignments = result.scalars().all()
+    
+    data = []
+    for assign in assignments:
+        data.append({
+            "id": assign.id,
+            "title": assign.title,
+            "due_date": assign.due_date.isoformat() if assign.due_date else None,
+            "status": assign.status,
+            "total_marks": assign.total_marks
+        })
+        
+    return {"data": data}
+
 @router.get("/{assignment_id}")
-def get_assignment_detail(assignment_id: int, db: Session = Depends(get_db), current_user: User = Depends(get_current_user)):
+async def get_assignment_detail(assignment_id: int, db: AsyncSession = Depends(get_db), current_user = Depends(get_current_user)):
     """Fetch assignment details"""
-    assignment = db.query(Assignment).filter(
-        Assignment.id == assignment_id, 
-        Assignment.school_id == current_user.school_id
-    ).first()
+    user, payload = current_user
+    school_id = payload.get("school_id")
+    
+    result = await db.execute(
+        select(Assignment).where(
+            Assignment.id == assignment_id, 
+            Assignment.school_id == school_id
+        )
+    )
+    assignment = result.scalar_one_or_none()
     
     if not assignment:
         raise HTTPException(status_code=404, detail="Assignment not found")
@@ -39,14 +73,21 @@ def get_assignment_detail(assignment_id: int, db: Session = Depends(get_db), cur
     }
 
 @router.get("/{assignment_id}/submissions")
-def get_assignment_submissions(assignment_id: int, db: Session = Depends(get_db), current_user: User = Depends(get_current_user)):
+async def get_assignment_submissions(assignment_id: int, db: AsyncSession = Depends(get_db), current_user = Depends(get_current_user)):
     """Fetch all submissions for an assignment"""
-    submissions = db.query(AssignmentSubmission).filter(AssignmentSubmission.assignment_id == assignment_id).all()
+    result = await db.execute(
+        select(AssignmentSubmission).where(AssignmentSubmission.assignment_id == assignment_id)
+    )
+    submissions = result.scalars().all()
     
-    result = []
+    data = []
     for sub in submissions:
-        student = db.query(Student).filter(Student.id == sub.student_id).first()
-        result.append({
+        student_result = await db.execute(
+            select(Student).where(Student.id == sub.student_id)
+        )
+        student = student_result.scalar_one_or_none()
+        
+        data.append({
             "id": sub.id,
             "first_name": student.first_name if student else "Unknown",
             "last_name": student.last_name if student else "Student",
@@ -56,17 +97,22 @@ def get_assignment_submissions(assignment_id: int, db: Session = Depends(get_db)
             "submission_text": sub.submission_text
         })
         
-    return {"data": result}
+    return {"data": data}
 
 @router.post("/submissions/{submission_id}/grade")
-def grade_submission(
+async def grade_submission(
     submission_id: int, 
     payload: GradeSubmissionRequest, 
-    db: Session = Depends(get_db), 
-    current_user: User = Depends(get_current_user)
+    db: AsyncSession = Depends(get_db), 
+    current_user = Depends(get_current_user)
 ):
     """Grade a specific submission and leave feedback"""
-    submission = db.query(AssignmentSubmission).filter(AssignmentSubmission.id == submission_id).first()
+    user, _ = current_user  # Only need the user ID here
+    
+    result = await db.execute(
+        select(AssignmentSubmission).where(AssignmentSubmission.id == submission_id)
+    )
+    submission = result.scalar_one_or_none()
     
     if not submission:
         raise HTTPException(status_code=404, detail="Submission not found")
@@ -74,8 +120,8 @@ def grade_submission(
     submission.grade = payload.grade
     submission.feedback = payload.feedback
     submission.status = "graded"
-    submission.graded_by = current_user.id
+    submission.graded_by = user.id
     submission.graded_at = datetime.utcnow()
     
-    db.commit()
+    await db.commit()
     return {"message": "Submission graded successfully", "data": {"id": submission.id, "score": submission.grade}}

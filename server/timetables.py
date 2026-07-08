@@ -159,6 +159,35 @@ async def get_timetable_slots(
             school_users.c.school_id == current_school.id,
         )
     )
+    # In server/timetables.py
+
+# Add this helper function at the top near _extract_role
+async def verify_timetable_manager(db: AsyncSession, user: User, school_id: int):
+    if user.is_super_admin:
+        return True
+    membership_result = await db.execute(
+        select(school_users.c.role).where(
+            school_users.c.user_id == user.id,
+            school_users.c.school_id == school_id,
+        )
+    )
+    role = _extract_role(membership_result.scalar_one_or_none())
+    if role not in ["admin", "timetable_manager"]:
+        raise HTTPException(status_code=403, detail="Not authorized to modify timetables")
+
+# Update POST route
+@router.post("", response_model=dict)
+@router.post("/", response_model=dict)
+async def create_timetable_slot(
+    data: TimetableSlotCreate,
+    db: AsyncSession = Depends(get_db),
+    current_school: School = Depends(get_current_school),
+    token_data=Depends(get_current_user), # ADD THIS
+):
+    user = token_data[0] # ADD THIS
+    await verify_timetable_manager(db, user, current_school.id) # ADD THIS
+
+    # ... rest of the existing conflict check and creation logic
     membership = membership_result.first()
     role = _extract_role(membership[0] if membership else None)
     if user.is_super_admin:

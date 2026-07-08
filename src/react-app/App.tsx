@@ -38,6 +38,7 @@ import Transport from "./pages/Transport";
 import Boarding from "./pages/Boarding";
 import CurriculumAssessment from "./pages/CurriculumAssessment";
 import SuperAdminDashboard from "./pages/SuperAdminDashboard";
+import TimetableManagerDashboard from "./pages/TimetableManagerDashboard";
 
 function ProtectedRoute({ children }: { children: React.ReactNode }) {
   const { user, isLoading } = useAuth();
@@ -97,6 +98,7 @@ function AppRoutes() {
         }
       >
         <Route index element={<Dashboard />} />
+        <Route path="timetable-manager" element={<TimetableManagerDashboard />} />
         <Route path="students" element={<Students />} />
         <Route path="students/:id" element={<StudentProfile />} />
         <Route path="schools" element={<Schools />} />
