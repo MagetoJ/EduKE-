@@ -23,13 +23,13 @@ import {
   Shield
 } from 'lucide-react'
 import { cn } from '../../lib/utils'
-import { useAuth } from '../../contexts/AuthContext'
+import { useAuth, UserRole } from '../../contexts/AuthContext'
 
 interface NavItem {
   title: string
   href: string
   icon: React.ComponentType<{ className?: string }>
-  roles: string[]
+  roles: UserRole[]
 }
 
 const navItems: NavItem[] = [
@@ -170,7 +170,13 @@ const navItems: NavItem[] = [
     href: '/dashboard/settings',
     icon: Settings,
     roles: ['admin', 'super_admin']
-  }
+  },
+  {
+    title: 'Subjects',
+    href: '/dashboard/subjects',
+    icon: BookOpen,
+    roles: ['admin', 'registrar', 'hod']
+  },
 ]
 
 interface SidebarProps {

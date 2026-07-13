@@ -20,9 +20,11 @@ export const routeRoles: { path: string; roles: Role[] }[] = [
   { path: '/dashboard/reports', roles: ['admin', 'super_admin', 'registrar', 'exam_officer', 'hod', 'hr_manager'] },
   { path: '/dashboard/cbc', roles: ['admin', 'teacher', 'hod', 'cbc_coordinator'] },
   { path: '/dashboard/transport', roles: ['admin', 'transport_manager'] },
+  {path: '/dashboard/subjects', roles: ['admin', 'registrar', 'hod', 'super_admin'] },
   { path: '/dashboard/boarding', roles: ['admin', 'registrar', 'boarding_master'] },
   { path: '/dashboard/curriculum-assessment', roles: ['admin', 'teacher', 'exam_officer', 'hod', 'cbc_coordinator'] },
   { path: '/dashboard/settings', roles: ['admin', 'super_admin'] }
+
 ];
 
 export function routeAllowsRole(pathname: string, roles: string[]): boolean {

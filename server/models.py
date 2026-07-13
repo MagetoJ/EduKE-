@@ -242,7 +242,6 @@ class Subject(Base):
     # Relationships
     school = relationship("School", back_populates="subjects")
     exams = relationship("Exam", back_populates="subject")
-    timetable_slots = relationship("TimetableSlot", back_populates="subject")
 
 class Exam(Base):
     """Exams and Assessments"""
@@ -285,7 +284,7 @@ class TimetableSlot(Base):
 
     id = Column(Integer, primary_key=True, index=True)
     school_id = Column(Integer, ForeignKey("schools.id"), nullable=False)
-    subject_id = Column(Integer, ForeignKey("subjects.id"), nullable=False)
+    subject_id = Column(Integer, ForeignKey("courses.id"), nullable=False)
     teacher_id = Column(Integer, ForeignKey("users.id")) # Link to User with Teacher role
     
     day_of_week = Column(String(10)) # Monday, Tuesday, etc.
@@ -296,7 +295,7 @@ class TimetableSlot(Base):
 
     # Relationships
     school = relationship("School", back_populates="timetable_slots")
-    subject = relationship("Subject", back_populates="timetable_slots")
+    course = relationship("Course", back_populates="timetable_slots")
     teacher = relationship("User")
 
 class Attendance(Base):
@@ -550,6 +549,9 @@ class Course(Base):
     grade = Column(String(50))
     
     is_active = Column(Boolean, default=True)
+
+    # Relationships
+    timetable_slots = relationship("TimetableSlot", back_populates="course")
 
 class Assignment(Base):
     __tablename__ = "assignments"

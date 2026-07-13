@@ -5,7 +5,7 @@ from typing import Optional
 from pydantic import BaseModel
 
 from database import get_db
-from models import TimetableSlot, School, Subject, User, school_users
+from models import TimetableSlot, School, Course, User, school_users
 from auth import get_current_school, get_current_user
 
 router = APIRouter(prefix="/timetable", tags=["Timetable Management"])
@@ -151,10 +151,10 @@ async def get_timetable_slots(
     query = (
         select(
             TimetableSlot,
-            Subject.name.label("subject_name"),
+            Course.name.label("subject_name"),
             User.full_name.label("teacher_name"),
         )
-        .join(Subject, TimetableSlot.subject_id == Subject.id)
+        .join(Course, TimetableSlot.subject_id == Course.id)
         .join(User, TimetableSlot.teacher_id == User.id, isouter=True)
         .where(TimetableSlot.school_id == current_school.id)
     )

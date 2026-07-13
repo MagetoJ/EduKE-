@@ -7,8 +7,8 @@ from datetime import datetime, date
 
 from database import get_db
 from models import Subject, Exam, GradeEntry, School, Student
-from auth import get_current_school
-
+from auth import get_current_school, get_current_user
+from sqlalchemy import delete, update
 router = APIRouter(prefix="/academic", tags=["Exams & Grading"])
 
 # --- Schemas ---
@@ -45,7 +45,48 @@ class GradeCreate(BaseModel):
     remarks: Optional[str] = None
 
 # --- Routes ---
+@router.put("/academic/subjects/{subject_id}")
+async def update_subject(
+    subject_id: int, 
+    data: dict, # Expecting {"name": "Math", "code": "MAT"}
+    db: AsyncSession = Depends(get_db), 
+    current_school: School = Depends(get_current_school),
+    token_data = Depends(get_current_user)
+):
+    # Optional: Verify role here using require_roles("admin", "hod", "registrar")
+    
+    result = await db.execute(
+        select(Subject).where(Subject.id == subject_id, Subject.school_id == current_school.id)
+    )
+    subject = result.scalar_one_or_none()
+    
+    if not subject:
+        raise HTTPException(status_code=404, detail="Subject not found")
 
+    if "name" in data:
+        subject.name = data["name"]
+    if "code" in data:
+        subject.code = data["code"]
+        
+    await db.commit()
+    return {"success": True, "message": "Subject updated successfully"}
+
+@router.delete("/academic/subjects/{subject_id}")
+async def delete_subject(
+    subject_id: int, 
+    db: AsyncSession = Depends(get_db), 
+    current_school: School = Depends(get_current_school),
+    token_data = Depends(get_current_user)
+):
+    result = await db.execute(
+        delete(Subject).where(Subject.id == subject_id, Subject.school_id == current_school.id)
+    )
+    await db.commit()
+    
+    if result.rowcount == 0:
+        raise HTTPException(status_code=404, detail="Subject not found")
+        
+    return {"success": True, "message": "Subject deleted successfully"}
 # Subjects
 @router.post("/subjects", response_model=SubjectResponse)
 async def create_subject(

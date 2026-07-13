@@ -40,6 +40,7 @@ import CurriculumAssessment from "./pages/CurriculumAssessment";
 import SuperAdminDashboard from "./pages/SuperAdminDashboard";
 import TimetableManagerDashboard from "./pages/TimetableManagerDashboard";
 import { useLocation } from "react-router";
+import Subjects from "./pages/Subjects";
 import { routeAllowsRole } from "./lib/accessControl";
 function ProtectedRoute({ children }: { children: React.ReactNode }) {
   const { user, isLoading } = useAuth();
@@ -112,6 +113,7 @@ function AppRoutes() {
       >
         <Route index element={<Dashboard />} />
         <Route path="timetable-manager" element={<TimetableManagerDashboard />} />
+        <Route path="subjects" element={<RoleRoute><Subjects /></RoleRoute>} />
         <Route path="students" element={<Students />} />
         <Route path="students/:id" element={<StudentProfile />} />
         <Route path="schools" element={<Schools />} />
