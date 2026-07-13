@@ -24,26 +24,28 @@ import {
 
 // ─────────────────────────── Types ───────────────────────────────
 
+
+
 type TimetableEntry = {
   id: string
   day_of_week: string
   grade: string
   class_section?: string
   classroom: string
-  course_name: string
+  course_name: string     // Changed from subject_name
   teacher_name: string
   period_name: string
   start_time: string
   end_time: string
   is_break: boolean
-  course_id: string
+  course_id: string       // Changed from subject_id
   teacher_id: string
   period_id: string
   is_accessible_track?: boolean
   accommodation_type?: string
 }
 
-type Course  = { id: string; name: string }
+type Course  = { id: string; name: string } // Changed from type Subject
 type Teacher = { id: string; name: string }
 type TimePeriod = {
   id: string
@@ -55,7 +57,7 @@ type TimePeriod = {
 
 type FormData = {
   id?: string
-  course_id: string
+  course_id: string       // Changed from subject_id
   teacher_id: string
   period_id: string
   day_of_week: string
@@ -261,12 +263,12 @@ export default function Timetable() {
     setIsSubmitting(true); setFormError(null)
     
     try {
-      const course  = courses.find(c => String(c.id) === String(formData.course_id))
+      const course  = courses.find(c => String(c.id) === String(formData.subject_id))
       const period  = periods.find(p => String(p.id) === String(formData.period_id))
       const teacher = teachers.find(t => String(t.id) === String(formData.teacher_id))
 
       const payload = {
-        subject_id: parseInt(formData.course_id),
+        subject_id: parseInt(formData.subject_id),
         teacher_id: formData.teacher_id && formData.teacher_id !== '__none' ? parseInt(formData.teacher_id) : null,
         day_of_week: formData.day_of_week,
         start_time: period?.start_time || '',

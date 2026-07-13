@@ -40,7 +40,7 @@ import CurriculumAssessment from "./pages/CurriculumAssessment";
 import SuperAdminDashboard from "./pages/SuperAdminDashboard";
 import TimetableManagerDashboard from "./pages/TimetableManagerDashboard";
 import { useLocation } from "react-router";
-import Subjects from "./pages/Subjects";
+import Subjects from "./pages/Courses";
 import { routeAllowsRole } from "./lib/accessControl";
 function ProtectedRoute({ children }: { children: React.ReactNode }) {
   const { user, isLoading } = useAuth();
