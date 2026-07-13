@@ -34,7 +34,7 @@ from students import router as students_router
 from payments import router as payments_router
 from assets import router as assets_router
 from users import router as users_router
-from exams import router as exams_router
+from exams import router as academic_router, exams_router
 from timetables import router as timetables_router
 from attendance import router as attendance_router
 from discipline import router as discipline_router
@@ -70,6 +70,7 @@ app.include_router(payments_router, prefix="/api", dependencies=[Depends(get_cur
 app.include_router(assets_router, prefix="/api", dependencies=[Depends(get_current_user)])
 app.include_router(users_router, prefix="/api", dependencies=[Depends(get_current_user)])
 app.include_router(exams_router, prefix="/api", dependencies=[Depends(get_current_user)])
+app.include_router(academic_router, prefix="/api", dependencies=[Depends(get_current_user)])
 app.include_router(timetables_router, prefix="/api", dependencies=[Depends(get_current_user)])
 app.include_router(attendance_router, prefix="/api", dependencies=[Depends(get_current_user)])
 app.include_router(discipline_router, prefix="/api", dependencies=[Depends(get_current_user)])

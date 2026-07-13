@@ -263,12 +263,12 @@ export default function Timetable() {
     setIsSubmitting(true); setFormError(null)
     
     try {
-      const course  = courses.find(c => String(c.id) === String(formData.subject_id))
+      const course  = courses.find(c => String(c.id) === String(formData.course_id))
       const period  = periods.find(p => String(p.id) === String(formData.period_id))
       const teacher = teachers.find(t => String(t.id) === String(formData.teacher_id))
 
       const payload = {
-        subject_id: parseInt(formData.subject_id),
+        course_id: parseInt(formData.course_id),
         teacher_id: formData.teacher_id && formData.teacher_id !== '__none' ? parseInt(formData.teacher_id) : null,
         day_of_week: formData.day_of_week,
         start_time: period?.start_time || '',
@@ -322,7 +322,7 @@ export default function Timetable() {
       const teacher = teachers.find(t => String(t.id) === String(formData.teacher_id))
 
       const payload = {
-        subject_id: parseInt(formData.course_id),
+        course_id: parseInt(formData.course_id),
         teacher_id: formData.teacher_id && formData.teacher_id !== '__none' ? parseInt(formData.teacher_id) : null,
         day_of_week: formData.day_of_week,
         start_time: period?.start_time || '',

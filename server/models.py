@@ -241,7 +241,6 @@ class Subject(Base):
     
     # Relationships
     school = relationship("School", back_populates="subjects")
-    exams = relationship("Exam", back_populates="subject")
 
 class Exam(Base):
     """Exams and Assessments"""
@@ -249,7 +248,7 @@ class Exam(Base):
 
     id = Column(Integer, primary_key=True, index=True)
     school_id = Column(Integer, ForeignKey("schools.id"), nullable=False)
-    subject_id = Column(Integer, ForeignKey("subjects.id"), nullable=False)
+    subject_id = Column(Integer, ForeignKey("courses.id"), nullable=False)  # despite the name, this references courses.id (see TimetableSlot for the same pattern)
     
     title = Column(String(100), nullable=False) # e.g., "End of Term 1"
     exam_date = Column(Date)
@@ -259,7 +258,7 @@ class Exam(Base):
 
     # Relationships
     school = relationship("School", back_populates="exams")
-    subject = relationship("Subject", back_populates="exams")
+    course = relationship("Course", back_populates="exams")
     grades = relationship("GradeEntry", back_populates="exam")
 
 class GradeEntry(Base):
@@ -552,6 +551,7 @@ class Course(Base):
 
     # Relationships
     timetable_slots = relationship("TimetableSlot", back_populates="course")
+    exams = relationship("Exam", back_populates="course")
 
 class Assignment(Base):
     __tablename__ = "assignments"
