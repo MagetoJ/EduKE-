@@ -7,6 +7,7 @@ export interface User {
   email: string;
   name: string;
   role: UserRole;
+  roles: UserRole[];
   schoolId?: string;
   schoolName?: string;
   avatar?: string;
@@ -260,6 +261,9 @@ const AuthProvider = ({ children }: { children: React.ReactNode }) => {
           email: data.data.user.email,
           name: data.data.user.name || `${data.data.user.first_name} ${data.data.user.last_name}`,
           role: data.data.user.role,
+          roles: Array.isArray(data.data.user.roles) && data.data.user.roles.length > 0 
+           ? data.data.user.roles 
+           : [data.data.user.role],
           schoolId: data.data.user.school_id ? String(data.data.user.school_id) : undefined,
           schoolName: data.data.user.school_name,
           avatar: data.data.user.avatar,

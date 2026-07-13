@@ -55,6 +55,16 @@ school_users = Table(
     UniqueConstraint('school_id', 'user_id', name='uq_school_user')
 )
 
+user_additional_roles = Table(
+    'user_additional_roles',
+    Base.metadata,
+    Column('id', Integer, primary_key=True),
+    Column('school_id', Integer, ForeignKey('schools.id', ondelete='CASCADE'), nullable=False),
+    Column('user_id', Integer, ForeignKey('users.id', ondelete='CASCADE'), nullable=False),
+    Column('role', SQLEnum(UserRole), nullable=False),
+    Column('granted_at', DateTime, default=datetime.utcnow),
+    UniqueConstraint('school_id', 'user_id', 'role', name='uq_user_additional_role')
+)
 # ==================== CORE MODELS ====================
 
 class School(Base):

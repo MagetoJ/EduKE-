@@ -1,0 +1,778 @@
+diff --git a/server/auth.py b/server/auth.py
+index 09c6351..3a319c7 100644
+--- a/server/auth.py
++++ b/server/auth.py
+@@ -141,6 +141,88 @@ async def get_current_school(token_data: tuple = Depends(get_current_user), db:
+     
+     return school
+ 
++async def get_effective_roles(db: AsyncSession, user_id: int, school_id: int) -> set:
++    """
++    Returns the full set of role strings a user holds in a given school:
++    their single primary role (school_users.role) plus any supplementary
++    roles granted via user_additional_roles (e.g. a Teacher also granted
++    'timetable_manager'). All role checks should go through this so a
++    supplementary grant behaves identically to being that role outright.
++    """
++    from models import school_users, user_additional_roles
++
++    primary_result = await db.execute(
++        select(school_users.c.role).where(
++            school_users.c.user_id == user_id,
++            school_users.c.school_id == school_id,
++            school_users.c.is_active == True,
++        )
++    )
++    primary_row = primary_result.first()
++    if not primary_row:
++        return set()
++
++    roles = {primary_row.role.value if hasattr(primary_row.role, "value") else str(primary_row.role)}
++
++    extra_result = await db.execute(
++        select(user_additional_roles.c.role).where(
++            user_additional_roles.c.user_id == user_id,
++            user_additional_roles.c.school_id == school_id,
++        )
++    )
++    for row in extra_result:
++        roles.add(row.role.value if hasattr(row.role, "value") else str(row.role))
++
++    return roles
++
++
++def require_roles(*allowed_roles: str):
++    """
++    Dependency factory: restricts an endpoint to specific roles within the
++    caller's current school — checking BOTH the user's primary role and any
++    supplementary roles granted via user_additional_roles. Super admins
++    always pass. Mirrors the same role strings used by the frontend
++    Sidebar's nav-item `roles` arrays, so backend and UI stay in sync.
++
++    Usage:
++        @router.post("/", dependencies=[Depends(require_roles("admin"))])
++        async def create_school_user(...): ...
++    """
++    normalized_allowed = {r.lower() for r in allowed_roles}
++
++    async def role_dependency(
++        token_data: tuple = Depends(get_current_user),
++        db: AsyncSession = Depends(get_db),
++    ):
++        user, payload = token_data
++
++        # Platform super admins bypass school-level role checks entirely
++        if getattr(user, "is_super_admin", False):
++            return user
++
++        school_id = payload.get("school_id")
++        if not school_id:
++            raise HTTPException(
++                status_code=status.HTTP_403_FORBIDDEN,
++                detail="Access token is not scoped to a specific school",
++            )
++
++        effective_roles = await get_effective_roles(db, user.id, school_id)
++
++        if not effective_roles:
++            raise HTTPException(status_code=403, detail="Not authorized for this school")
++
++        if not (effective_roles & normalized_allowed):
++            raise HTTPException(
++                status_code=status.HTTP_403_FORBIDDEN,
++                detail=f"This action requires one of the following roles: {', '.join(sorted(normalized_allowed))}",
++            )
++
++        return user
++
++    return role_dependency
++
++
+ def check_permissions(required_role: Optional[UserRole] = None, required_permission: Optional[Permission] = None):
+     """
+     Dependency factory to check for specific roles or permissions.
+diff --git a/server/main.py b/server/main.py
+index 0369a6d..bdc101f 100644
+--- a/server/main.py
++++ b/server/main.py
+@@ -8,15 +8,15 @@ from fastapi.responses import JSONResponse
+ from fastapi.middleware.cors import CORSMiddleware
+ from sqlalchemy.ext.asyncio import AsyncSession
+ from sqlalchemy.exc import SQLAlchemyError
+-from sqlalchemy import select, insert, update  # Added update here
++from sqlalchemy import select, insert, update, delete  # Added update/delete here
+ from datetime import timedelta
+-from typing import Optional
++from typing import Optional, List
+ import logging
+ import traceback
+ import os
+ 
+ from database import get_db, init_db
+-from models import User, School, school_users, UserRole
++from models import User, School, school_users, user_additional_roles, UserRole
+ from auth import (
+     get_password_hash, 
+     verify_password, 
+@@ -24,6 +24,7 @@ from auth import (
+     get_current_user,
+     get_current_school,
+     get_current_super_admin,
++    require_roles,
+     ACCESS_TOKEN_EXPIRE_MINUTES,
+     SECRET_KEY,
+     ALGORITHM
+@@ -172,6 +173,10 @@ class StaffUpdate(BaseModel):
+     role: Optional[str] = None
+     department: Optional[str] = None
+     is_active: Optional[bool] = None
++    # If provided, REPLACES the staff member's full set of supplementary
++    # roles (e.g. ["timetable_manager", "cbc_coordinator"]). Omit this
++    # field entirely to leave existing additional roles untouched.
++    additional_roles: Optional[List[str]] = None
+ 
+ # ==================== AUTH ROUTES ====================
+ 
+@@ -250,6 +255,19 @@ async def login(data: LoginRequest, db: AsyncSession = Depends(get_db)):
+     school_is_special_needs = False
+     school_disability_category = "none"
+ 
++    effective_roles = [role.value if hasattr(role, "value") else str(role)]
++    if school_id:
++        extra_roles_result = await db.execute(
++            select(user_additional_roles.c.role).where(
++                user_additional_roles.c.user_id == user.id,
++                user_additional_roles.c.school_id == school_id,
++            )
++        )
++        for extra_row in extra_roles_result:
++            extra_value = extra_row.role.value if hasattr(extra_row.role, "value") else str(extra_row.role)
++            if extra_value not in effective_roles:
++                effective_roles.append(extra_value)
++
+     if school_id:
+         school_result = await db.execute(select(School).where(School.id == school_id))
+         school = school_result.scalar_one_or_none()
+@@ -278,6 +296,7 @@ async def login(data: LoginRequest, db: AsyncSession = Depends(get_db)):
+                 "email": user.email,
+                 "name": user.full_name,
+                 "role": role,
++                "roles": effective_roles,
+                 "is_super_admin": user.is_super_admin,
+                 "school_id": str(school_id) if school_id else None,
+                 "school_name": school_name,
+@@ -331,8 +350,8 @@ async def refresh_token(data: RefreshRequest, request: Request):
+ 
+ # ==================== STAFF DIRECTORY ROUTES ====================
+ 
+-@app.get("/api/staff")
+-@app.get("/api/staff/")
++@app.get("/api/staff", dependencies=[Depends(require_roles("admin", "registrar", "hod", "hr_manager"))])
++@app.get("/api/staff/", dependencies=[Depends(require_roles("admin", "registrar", "hod", "hr_manager"))])
+ async def list_school_staff(
+     db: AsyncSession = Depends(get_db),
+     token_data: tuple = Depends(get_current_user),  
+@@ -358,7 +377,18 @@ async def list_school_staff(
+     
+     result = await db.execute(query)
+     rows = result.all()
+-    
++
++    # Fetch supplementary roles for everyone in one query, grouped by user_id
++    extra_roles_result = await db.execute(
++        select(user_additional_roles.c.user_id, user_additional_roles.c.role).where(
++            user_additional_roles.c.school_id == current_school.id
++        )
++    )
++    extra_roles_by_user: dict = {}
++    for user_id, extra_role in extra_roles_result:
++        value = extra_role.value if hasattr(extra_role, "value") else str(extra_role)
++        extra_roles_by_user.setdefault(user_id, []).append(value)
++
+     staff_list = []
+     for row in rows:
+         raw_role = row[3]
+@@ -382,6 +412,7 @@ async def list_school_staff(
+             "email": row[2] or "", 
+             "phone": "",
+             "role": role_str,
++            "additional_roles": extra_roles_by_user.get(row[0], []),
+             "department": "Administration" if role_str in ["admin", "hr_manager", "registrar"] else "Academics",
+             "status": "Active" if raw_active else "Inactive",
+             "hire_date": None,
+@@ -392,7 +423,7 @@ async def list_school_staff(
+     return {"success": True, "data": staff_list}
+ 
+ 
+-@app.put("/api/staff/{staff_id}")
++@app.put("/api/staff/{staff_id}", dependencies=[Depends(require_roles("admin", "hr_manager"))])
+ async def update_staff_member(
+     staff_id: int,
+     data: StaffUpdate,
+@@ -437,6 +468,32 @@ async def update_staff_member(
+             ).values(**update_values)
+         )
+ 
++    if data.additional_roles is not None:
++        current_primary_role = membership.role.value if hasattr(membership.role, "value") else str(membership.role)
++        primary_role_value = data.role or current_primary_role
++        valid_role_values = {r.value for r in UserRole}
++
++        # Replace the full set: clear existing grants, then re-insert.
++        await db.execute(
++            delete(user_additional_roles).where(
++                user_additional_roles.c.user_id == staff_id,
++                user_additional_roles.c.school_id == current_school.id
++            )
++        )
++        seen = set()
++        for raw_role in data.additional_roles:
++            role_value = raw_role.strip().lower()
++            if role_value not in valid_role_values or role_value == primary_role_value or role_value in seen:
++                continue
++            seen.add(role_value)
++            await db.execute(
++                insert(user_additional_roles).values(
++                    school_id=current_school.id,
++                    user_id=staff_id,
++                    role=UserRole(role_value),
++                )
++            )
++
+     await db.commit()
+     return {"success": True, "message": "Staff member updated successfully"}
+ 
+diff --git a/server/models.py b/server/models.py
+index bd590dd..f0b3e19 100644
+--- a/server/models.py
++++ b/server/models.py
+@@ -55,6 +55,21 @@ school_users = Table(
+     UniqueConstraint('school_id', 'user_id', name='uq_school_user')
+ )
+ 
++# Supplementary functional roles a user can hold on top of their primary
++# school_users.role — e.g. a Teacher who is also the Timetable Manager, or
++# an Admin who is also the CBC Coordinator. This lets one account unlock
++# extra pages/permissions without needing a bespoke combined dashboard.
++user_additional_roles = Table(
++    'user_additional_roles',
++    Base.metadata,
++    Column('id', Integer, primary_key=True),
++    Column('school_id', Integer, ForeignKey('schools.id', ondelete='CASCADE'), nullable=False),
++    Column('user_id', Integer, ForeignKey('users.id', ondelete='CASCADE'), nullable=False),
++    Column('role', SQLEnum(UserRole), nullable=False),
++    Column('granted_at', DateTime, default=datetime.utcnow),
++    UniqueConstraint('school_id', 'user_id', 'role', name='uq_user_additional_role')
++)
++
+ # ==================== CORE MODELS ====================
+ 
+ class School(Base):
+diff --git a/server/users.py b/server/users.py
+index a4606df..64fc0e7 100644
+--- a/server/users.py
++++ b/server/users.py
+@@ -5,8 +5,8 @@ from typing import List, Optional
+ from pydantic import BaseModel, EmailStr, model_validator
+ 
+ from database import get_db
+-from models import User, School, school_users, UserRole
+-from auth import get_current_school, get_password_hash
++from models import User, School, school_users, user_additional_roles, UserRole
++from auth import get_current_school, get_password_hash, require_roles
+ 
+ router = APIRouter(prefix="/users", tags=["User Management"])
+ 
+@@ -40,6 +40,10 @@ class UserCreate(BaseModel):
+     school_id: Optional[int] = None
+     class_assigned: Optional[str] = None
+     subject: Optional[str] = None
++    # Supplementary functional roles, e.g. a Teacher also assigned
++    # "timetable_manager" and "cbc_coordinator" instead of needing a
++    # dedicated dashboard variant for that combination.
++    additional_roles: List[str] = []
+ 
+     @model_validator(mode="before")
+     @classmethod
+@@ -90,8 +94,8 @@ async def get_school_users(
+     result = await db.execute(query)
+     return result.scalars().all()
+ 
+-@router.post("", response_model=UserResponse)
+-@router.post("/", response_model=UserResponse)
++@router.post("", response_model=UserResponse, dependencies=[Depends(require_roles("admin", "hr_manager"))])
++@router.post("/", response_model=UserResponse, dependencies=[Depends(require_roles("admin", "hr_manager"))])
+ async def create_school_user(
+     data: UserCreate,
+     db: AsyncSession = Depends(get_db),
+@@ -133,7 +137,27 @@ async def create_school_user(
+             is_active=True
+         )
+     )
+-    
++
++    # 5. Grant any supplementary functional roles (e.g. a Teacher who is
++    #    also the Timetable Manager). Invalid role strings are ignored
++    #    rather than failing the whole account-creation request.
++    valid_role_values = {r.value for r in UserRole}
++    granted_extra_roles = []
++    for raw_role in data.additional_roles:
++        role_value = raw_role.strip().lower()
++        if role_value not in valid_role_values or role_value == mapped_role.value:
++            continue
++        if role_value in granted_extra_roles:
++            continue
++        granted_extra_roles.append(role_value)
++        await db.execute(
++            insert(user_additional_roles).values(
++                school_id=current_school.id,
++                user_id=new_user.id,
++                role=UserRole(role_value),
++            )
++        )
++
+     await db.commit()
+     await db.refresh(new_user)
+     return new_user
+diff --git a/src/react-app/App.tsx b/src/react-app/App.tsx
+index 0d4f7d5..7e27e4b 100644
+--- a/src/react-app/App.tsx
++++ b/src/react-app/App.tsx
+@@ -1,5 +1,6 @@
+-import { BrowserRouter as Router, Routes, Route, Navigate } from "react-router";
++import { BrowserRouter as Router, Routes, Route, Navigate, useLocation } from "react-router";
+ import { AuthProvider, useAuth } from "./contexts/AuthContext";
++import { routeAllowsRole } from "./lib/accessControl";
+ import { NotificationsProvider } from "./contexts/NotificationsContext";
+ import DashboardLayout from "./components/layout/DashboardLayout";
+ import Login from "./pages/Login";
+@@ -58,6 +59,28 @@ function ProtectedRoute({ children }: { children: React.ReactNode }) {
+   return <>{children}</>;
+ }
+ 
++/**
++ * Blocks navigation to a route when the logged-in user's role isn't in that
++ * route's allow-list (see lib/accessControl.ts). This is a UX guard, not the
++ * real security boundary — matching backend endpoints must enforce this too
++ * via require_roles(...) in server/auth.py. Without this, hiding a link in
++ * Sidebar.tsx did nothing to stop a user from typing the URL directly.
++ */
++function RoleRoute({ children }: { children: React.ReactNode }) {
++  const { user } = useAuth();
++  const location = useLocation();
++
++  if (!user) {
++    return <Navigate to="/login" />;
++  }
++
++  if (!routeAllowsRole(location.pathname, user.roles && user.roles.length > 0 ? user.roles : [user.role])) {
++    return <Navigate to="/dashboard" replace />;
++  }
++
++  return <>{children}</>;
++}
++
+ function AppRoutes() {
+   const { user } = useAuth();
+   
+@@ -98,36 +121,36 @@ function AppRoutes() {
+         }
+       >
+         <Route index element={<Dashboard />} />
+-        <Route path="timetable-manager" element={<TimetableManagerDashboard />} />
+-        <Route path="students" element={<Students />} />
++        <Route path="timetable-manager" element={<RoleRoute><TimetableManagerDashboard /></RoleRoute>} />
++        <Route path="students" element={<RoleRoute><Students /></RoleRoute>} />
+         <Route path="students/:id" element={<StudentProfile />} />
+-        <Route path="schools" element={<Schools />} />
+-        <Route path="schools/:id" element={<SchoolProfile />} />
+-        <Route path="school-admins" element={<SchoolAdmins />} />
+-        <Route path="reports" element={<Reports />} />
+-        <Route path="staff" element={<Staff />} />
+-        <Route path="staff/:id" element={<StaffProfile />} />
+-        <Route path="communications" element={<Communications />} />
+-        <Route path="progress" element={<Progress />} />
+-        <Route path="academics" element={<Academics />} />
+-        <Route path="academics/courses/:id" element={<CourseDetail />} />
+-        <Route path="academics/assignments/:id" element={<AssignmentDetail />} />
+-        <Route path="academics/exams/:id" element={<ExamDetail />} />
+-        <Route path="fees" element={<Fees />} />
+-        <Route path="timetable" element={<Timetable />} />
+-        <Route path="leave" element={<Leave />} />
+-        <Route path="subscriptions" element={<Subscriptions />} />
+-        <Route path="settings" element={<Settings />} />
+-        <Route path="parent" element={<ParentDashboard />} />
+-        <Route path="student-dashboard" element={<StudentDashboard />} />
+-        <Route path="teacher-dashboard" element={<TeacherDashboard />} />
+-        <Route path="cbc" element={<CBC />} />
++        <Route path="schools" element={<RoleRoute><Schools /></RoleRoute>} />
++        <Route path="schools/:id" element={<RoleRoute><SchoolProfile /></RoleRoute>} />
++        <Route path="school-admins" element={<RoleRoute><SchoolAdmins /></RoleRoute>} />
++        <Route path="reports" element={<RoleRoute><Reports /></RoleRoute>} />
++        <Route path="staff" element={<RoleRoute><Staff /></RoleRoute>} />
++        <Route path="staff/:id" element={<RoleRoute><StaffProfile /></RoleRoute>} />
++        <Route path="communications" element={<RoleRoute><Communications /></RoleRoute>} />
++        <Route path="progress" element={<RoleRoute><Progress /></RoleRoute>} />
++        <Route path="academics" element={<RoleRoute><Academics /></RoleRoute>} />
++        <Route path="academics/courses/:id" element={<RoleRoute><CourseDetail /></RoleRoute>} />
++        <Route path="academics/assignments/:id" element={<RoleRoute><AssignmentDetail /></RoleRoute>} />
++        <Route path="academics/exams/:id" element={<RoleRoute><ExamDetail /></RoleRoute>} />
++        <Route path="fees" element={<RoleRoute><Fees /></RoleRoute>} />
++        <Route path="timetable" element={<RoleRoute><Timetable /></RoleRoute>} />
++        <Route path="leave" element={<RoleRoute><Leave /></RoleRoute>} />
++        <Route path="subscriptions" element={<RoleRoute><Subscriptions /></RoleRoute>} />
++        <Route path="settings" element={<RoleRoute><Settings /></RoleRoute>} />
++        <Route path="parent" element={<RoleRoute><ParentDashboard /></RoleRoute>} />
++        <Route path="student-dashboard" element={<RoleRoute><StudentDashboard /></RoleRoute>} />
++        <Route path="teacher-dashboard" element={<RoleRoute><TeacherDashboard /></RoleRoute>} />
++        <Route path="cbc" element={<RoleRoute><CBC /></RoleRoute>} />
+         {/* <Route path="nemis" element={<NEMIS />} />
+         <Route path="knec" element={<KNEC />} /> */}
+-        <Route path="transport" element={<Transport />} />
+-        <Route path="boarding" element={<Boarding />} />
+-        <Route path="curriculum-assessment" element={<CurriculumAssessment />} />
+-        <Route path="platform-admin" element={<SuperAdminDashboard />} />
++        <Route path="transport" element={<RoleRoute><Transport /></RoleRoute>} />
++        <Route path="boarding" element={<RoleRoute><Boarding /></RoleRoute>} />
++        <Route path="curriculum-assessment" element={<RoleRoute><CurriculumAssessment /></RoleRoute>} />
++        <Route path="platform-admin" element={<RoleRoute><SuperAdminDashboard /></RoleRoute>} />
+       </Route>
+       <Route path="*" element={<Navigate to="/dashboard" />} />
+     </Routes>
+diff --git a/src/react-app/components/layout/Sidebar.tsx b/src/react-app/components/layout/Sidebar.tsx
+index 76dea67..9360c7f 100644
+--- a/src/react-app/components/layout/Sidebar.tsx
++++ b/src/react-app/components/layout/Sidebar.tsx
+@@ -184,8 +184,9 @@ export default function Sidebar({ isOpen = false, onClose }: SidebarProps) {
+ 
+   if (!user) return null
+ 
+-  const filteredNavItems = navItems.filter(item => 
+-    item.roles.includes(user.role)
++  const effectiveRoles = user.roles && user.roles.length > 0 ? user.roles : [user.role]
++  const filteredNavItems = navItems.filter(item =>
++    item.roles.some(role => effectiveRoles.includes(role))
+   )
+ 
+   const NavContent = () => (
+diff --git a/src/react-app/contexts/AuthContext.tsx b/src/react-app/contexts/AuthContext.tsx
+index b6a8d62..20af886 100644
+--- a/src/react-app/contexts/AuthContext.tsx
++++ b/src/react-app/contexts/AuthContext.tsx
+@@ -7,6 +7,10 @@ export interface User {
+   email: string;
+   name: string;
+   role: UserRole;
++  /** Primary role plus any supplementary roles granted by an admin
++   *  (e.g. a Teacher also granted 'timetable_manager'). Falls back to
++   *  [role] if the backend hasn't started returning this yet. */
++  roles: UserRole[];
+   schoolId?: string;
+   schoolName?: string;
+   avatar?: string;
+@@ -260,6 +264,9 @@ const AuthProvider = ({ children }: { children: React.ReactNode }) => {
+           email: data.data.user.email,
+           name: data.data.user.name || `${data.data.user.first_name} ${data.data.user.last_name}`,
+           role: data.data.user.role,
++          roles: Array.isArray(data.data.user.roles) && data.data.user.roles.length > 0
++            ? data.data.user.roles
++            : [data.data.user.role],
+           schoolId: data.data.user.school_id ? String(data.data.user.school_id) : undefined,
+           schoolName: data.data.user.school_name,
+           avatar: data.data.user.avatar,
+diff --git a/src/react-app/lib/accessControl.ts b/src/react-app/lib/accessControl.ts
+new file mode 100644
+index 0000000..8c82445
+--- /dev/null
++++ b/src/react-app/lib/accessControl.ts
+@@ -0,0 +1,87 @@
++/**
++ * Single source of truth for role-based access to dashboard routes.
++ *
++ * Previously, role logic only lived in the Sidebar's `navItems` array (which
++ * roles) and Dashboard.tsx's switch block (which dashboard view to render).
++ * That hid links from the nav, but a logged-in user typing a URL directly
++ * (e.g. /dashboard/platform-admin) could still reach the page and call its
++ * backend endpoints, because ProtectedRoute only checked "is authenticated",
++ * never "is this user allowed on this route".
++ *
++ * This map is now used by:
++ *  - Sidebar.tsx, to decide which links to show
++ *  - App.tsx's RoleRoute, to actually block navigation to disallowed routes
++ *
++ * Keep this in sync with server/auth.py's require_roles(...) calls on the
++ * matching API endpoints — the frontend guard is a UX nicety, the backend
++ * guard is the real security boundary.
++ */
++
++export type Role =
++  | 'super_admin'
++  | 'admin'
++  | 'teacher'
++  | 'parent'
++  | 'student'
++  | 'registrar'
++  | 'exam_officer'
++  | 'hod'
++  | 'timetable_manager'
++  | 'transport_manager'
++  | 'class_teacher'
++  | 'boarding_master'
++  | 'cbc_coordinator'
++  | 'hr_manager'
++  | 'admission_officer'
++  | 'nurse';
++
++const ALL_ROLES: Role[] = [
++  'super_admin', 'admin', 'teacher', 'parent', 'student', 'registrar',
++  'exam_officer', 'hod', 'timetable_manager', 'transport_manager',
++  'class_teacher', 'boarding_master', 'cbc_coordinator', 'hr_manager',
++  'admission_officer', 'nurse',
++];
++
++/** Path is matched as a prefix against the current route (see routeAllowsRole). */
++export const routeRoles: { path: string; roles: Role[] }[] = [
++  { path: '/dashboard/schools', roles: ['super_admin'] },
++  { path: '/dashboard/school-admins', roles: ['super_admin'] },
++  { path: '/dashboard/subscriptions', roles: ['super_admin'] },
++  { path: '/dashboard/platform-admin', roles: ['super_admin'] },
++  { path: '/dashboard/students', roles: ['admin', 'teacher', 'registrar', 'exam_officer', 'hod', 'admission_officer', 'class_teacher'] },
++  { path: '/dashboard/staff', roles: ['admin', 'registrar', 'hod', 'hr_manager'] },
++  { path: '/dashboard/academics', roles: ['admin', 'teacher', 'exam_officer', 'hod', 'cbc_coordinator', 'class_teacher'] },
++  { path: '/dashboard/progress', roles: ['parent', 'student'] },
++  { path: '/dashboard/parent', roles: ['parent'] },
++  { path: '/dashboard/student-dashboard', roles: ['student'] },
++  { path: '/dashboard/teacher-dashboard', roles: ['teacher', 'hod', 'class_teacher'] },
++  { path: '/dashboard/timetable-manager', roles: ['timetable_manager', 'admin'] },
++  { path: '/dashboard/timetable', roles: ['admin', 'teacher', 'parent', 'student', 'timetable_manager', 'registrar', 'hod'] },
++  { path: '/dashboard/communications', roles: ['admin', 'teacher', 'parent', 'registrar', 'hod', 'hr_manager', 'admission_officer', 'nurse'] },
++  { path: '/dashboard/fees', roles: ['admin', 'parent', 'student', 'registrar', 'super_admin'] },
++  { path: '/dashboard/leave', roles: ['admin', 'teacher', 'hod', 'hr_manager'] },
++  { path: '/dashboard/reports', roles: ['admin', 'super_admin', 'registrar', 'exam_officer', 'hod', 'hr_manager'] },
++  { path: '/dashboard/cbc', roles: ['admin', 'teacher', 'hod', 'cbc_coordinator'] },
++  { path: '/dashboard/transport', roles: ['admin', 'transport_manager'] },
++  { path: '/dashboard/boarding', roles: ['admin', 'registrar', 'boarding_master'] },
++  { path: '/dashboard/curriculum-assessment', roles: ['admin', 'teacher', 'exam_officer', 'hod', 'cbc_coordinator'] },
++  { path: '/dashboard/settings', roles: ['admin', 'super_admin'] },
++  // Dashboard root and any route not listed above (e.g. detail pages that do
++  // their own record-level checks) are open to any authenticated role.
++];
++
++/**
++ * Longest-prefix match wins, so /dashboard/students/:id inherits /dashboard/students rules.
++ * Accepts the user's full role set (primary + any supplementary roles granted
++ * by an admin) — access is allowed if ANY held role matches.
++ */
++export function routeAllowsRole(pathname: string, roles: string[]): boolean {
++  const candidates = routeRoles
++    .filter(r => pathname === r.path || pathname.startsWith(r.path + '/'))
++    .sort((a, b) => b.path.length - a.path.length);
++
++  if (candidates.length === 0) return true; // no restriction defined -> open to all authenticated roles
++  return candidates[0].roles.some(allowed => roles.includes(allowed));
++}
++
++export { ALL_ROLES };
+diff --git a/src/react-app/pages/Staff.tsx b/src/react-app/pages/Staff.tsx
+index 9ebf42b..f262adb 100644
+--- a/src/react-app/pages/Staff.tsx
++++ b/src/react-app/pages/Staff.tsx
+@@ -27,6 +27,7 @@ type StaffMember = {
+   email: string;
+   phone: string;
+   role: string;
++  additional_roles?: string[];
+   department: string;
+   status: string;
+   avatar_url?: string;
+@@ -46,6 +47,22 @@ type LeaveRequest = {
+   status: string;
+ };
+ 
++// Functional roles an admin can layer on top of someone's primary role —
++// e.g. a Teacher who is also the Timetable Manager — instead of needing a
++// dedicated combined dashboard for every possible role combination.
++const ADDITIONAL_ROLE_OPTIONS: { value: string; label: string }[] = [
++  { value: 'registrar', label: 'Registrar' },
++  { value: 'exam_officer', label: 'Exam Officer' },
++  { value: 'hod', label: 'Head of Department' },
++  { value: 'timetable_manager', label: 'Timetable Manager' },
++  { value: 'transport_manager', label: 'Transport Manager' },
++  { value: 'boarding_master', label: 'Boarding Master' },
++  { value: 'cbc_coordinator', label: 'CBC Coordinator' },
++  { value: 'hr_manager', label: 'HR Manager' },
++  { value: 'admission_officer', label: 'Admission Officer' },
++  { value: 'nurse', label: 'Nurse' },
++]
++
+ const initialStaffForm = {
+   firstName: '',
+   lastName: '',
+@@ -57,7 +74,8 @@ const initialStaffForm = {
+   password: '',
+   classAssigned: '',
+   subject: '',
+-  school_id: 1
++  school_id: 1,
++  additionalRoles: [] as string[]
+ }
+ 
+ export default function Staff() {
+@@ -82,7 +100,8 @@ export default function Staff() {
+     classAssigned: '',
+     subject: '',
+     joinDate: '',
+-    status: ''
++    status: '',
++    additionalRoles: [] as string[]
+   })
+ 
+   const extractStaffArray = (data: any): any[] => {
+@@ -116,6 +135,7 @@ export default function Staff() {
+               email: String(member.email || ''),
+               phone: String(member.phone || ''),
+               role: formattedRole,
++              additional_roles: Array.isArray(member.additional_roles) ? member.additional_roles as string[] : [],
+               department: String(member.department || 'General'),
+               hire_date: String(member.hire_date || new Date().toISOString()),
+               status: rawStatus.charAt(0).toUpperCase() + rawStatus.slice(1).toLowerCase(),
+@@ -206,6 +226,24 @@ export default function Staff() {
+     setEditStaffForm(prev => ({ ...prev, [field]: value }))
+   }
+ 
++  const toggleAdditionalRole = (role: string) => {
++    setFormData(prev => ({
++      ...prev,
++      additionalRoles: prev.additionalRoles.includes(role)
++        ? prev.additionalRoles.filter(r => r !== role)
++        : [...prev.additionalRoles, role]
++    }))
++  }
++
++  const toggleEditAdditionalRole = (role: string) => {
++    setEditStaffForm(prev => ({
++      ...prev,
++      additionalRoles: prev.additionalRoles.includes(role)
++        ? prev.additionalRoles.filter(r => r !== role)
++        : [...prev.additionalRoles, role]
++    }))
++  }
++
+   const handleAddStaff = async (e: FormEvent<HTMLFormElement>) => {
+     e.preventDefault()
+     setIsSubmitting(true)
+@@ -243,7 +281,8 @@ export default function Staff() {
+             phone: formData.phone,
+             school_id: formData.school_id,
+             class_assigned: formData.classAssigned,
+-            subject: formData.subject
++            subject: formData.subject,
++            additional_roles: formData.additionalRoles
+           })
+         })
+ 
+@@ -272,6 +311,7 @@ export default function Staff() {
+             email: String(member.email || ''),
+             phone: String(member.phone || ''),
+             role: formattedRole,
++            additional_roles: Array.isArray(member.additional_roles) ? member.additional_roles as string[] : [],
+             department: String(member.department || 'General'),
+             hire_date: String(member.hire_date || new Date().toISOString()),
+             status: rawStatus.charAt(0).toUpperCase() + rawStatus.slice(1).toLowerCase(),
+@@ -302,7 +342,8 @@ export default function Staff() {
+       classAssigned: member.class_assigned ?? '',
+       subject: member.subject ?? '',
+       joinDate: member.hire_date ? member.hire_date.split('T')[0] : '',
+-      status: member.status
++      status: member.status,
++      additionalRoles: member.additional_roles ?? []
+     })
+     setEditingStaffId(member.id)
+     setIsEditStaffDialogOpen(true)
+@@ -326,7 +367,8 @@ export default function Staff() {
+           department: editStaffForm.department,
+           class_assigned: editStaffForm.role === 'Teacher' ? editStaffForm.classAssigned : null,
+           subject: editStaffForm.role === 'Teacher' ? editStaffForm.subject : null,
+-          status: editStaffForm.status.toLowerCase()
++          status: editStaffForm.status.toLowerCase(),
++          additional_roles: editStaffForm.additionalRoles
+         })
+       })
+ 
+@@ -354,6 +396,7 @@ export default function Staff() {
+             email: String(member.email || ''),
+             phone: String(member.phone || ''),
+             role: formattedRole,
++            additional_roles: Array.isArray(member.additional_roles) ? member.additional_roles as string[] : [],
+             department: String(member.department || 'General'),
+             hire_date: String(member.hire_date || new Date().toISOString()),
+             status: rawStatus.charAt(0).toUpperCase() + rawStatus.slice(1).toLowerCase(),
+@@ -503,6 +546,26 @@ export default function Staff() {
+                   </div>
+                 </div>
+ 
++                <div className="space-y-2">
++                  <Label>Additional Access</Label>
++                  <p className="text-xs text-muted-foreground">
++                    Grant this account extra roles on top of their primary role above — e.g. a Teacher who also manages the timetable — instead of creating a separate account.
++                  </p>
++                  <div className="grid grid-cols-2 gap-2 border rounded-md p-3">
++                    {ADDITIONAL_ROLE_OPTIONS.filter(opt => opt.value !== formData.role).map(opt => (
++                      <label key={opt.value} className="flex items-center gap-2 text-sm cursor-pointer">
++                        <input
++                          type="checkbox"
++                          checked={formData.additionalRoles.includes(opt.value)}
++                          onChange={() => toggleAdditionalRole(opt.value)}
++                          className="h-4 w-4 rounded border-gray-300"
++                        />
++                        {opt.label}
++                      </label>
++                    ))}
++                  </div>
++                </div>
++
+                 {['teacher', 'class_teacher', 'hod', 'cbc_coordinator'].includes(formData.role) && (
+                   <div className="grid grid-cols-2 gap-4">
+                     <div className="space-y-2">
+@@ -654,6 +717,26 @@ export default function Staff() {
+                   </div>
+                 )}
+ 
++                <div className="space-y-2">
++                  <Label>Additional Access</Label>
++                  <p className="text-xs text-muted-foreground">
++                    Extra roles granted on top of this person's primary role — e.g. also managing the timetable.
++                  </p>
++                  <div className="grid grid-cols-2 gap-2 border rounded-md p-3">
++                    {ADDITIONAL_ROLE_OPTIONS.filter(opt => opt.value !== editStaffForm.role.toLowerCase()).map(opt => (
++                      <label key={opt.value} className="flex items-center gap-2 text-sm cursor-pointer">
++                        <input
++                          type="checkbox"
++                          checked={editStaffForm.additionalRoles.includes(opt.value)}
++                          onChange={() => toggleEditAdditionalRole(opt.value)}
++                          className="h-4 w-4 rounded border-gray-300"
++                        />
++                        {opt.label}
++                      </label>
++                    ))}
++                  </div>
++                </div>
++
+                 <div className="space-y-2">
+                   <Label htmlFor="status">Status</Label>
+                   <Select value={editStaffForm.status} onValueChange={(value) => handleEditStaffSelectChange('status', value)}>
+@@ -723,6 +806,15 @@ export default function Staff() {
+                           </Link>
+                         </h3>
+                         <p className="text-sm text-gray-600">{member.role} • {member.department}</p>
++                        {member.additional_roles && member.additional_roles.length > 0 && (
++                          <div className="flex flex-wrap gap-1 mt-1">
++                            {member.additional_roles.map(role => (
++                              <span key={role} className="text-xs bg-blue-50 text-blue-700 rounded-full px-2 py-0.5">
++                                {role.split('_').map(w => w.charAt(0).toUpperCase() + w.slice(1)).join(' ')}
++                              </span>
++                            ))}
++                          </div>
++                        )}
+                       </div>
+                     </div>

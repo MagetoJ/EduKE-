@@ -1,5 +1,12 @@
 import os
 import asyncio
+import sys
+
+# --- THE WINDOWS FIX ---
+# Prevents 'asyncpg' from abruptly dropping secure SSL connections to Render on Windows
+if sys.platform == 'win32':
+    asyncio.set_event_loop_policy(asyncio.WindowsSelectorEventLoopPolicy())
+# -----------------------
 
 # Explicit live target engine connection
 os.environ["DATABASE_URL"] = "postgresql+asyncpg://eduke_396b_user:t3CHVYbXLR9IRSo6uMooVMXZJQuZA6e7@dpg-d8gsheernols73c3k420-a.oregon-postgres.render.com/eduke_396b?ssl=require"

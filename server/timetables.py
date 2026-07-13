@@ -10,17 +10,16 @@ from auth import get_current_school, get_current_user
 
 router = APIRouter(prefix="/timetable", tags=["Timetable Management"])
 
-
 # ─────────────────────────── Schemas ────────────────────────────
 
 class TimetableSlotCreate(BaseModel):
     subject_id: int
     teacher_id: Optional[int] = None
-    day_of_week: str        # e.g. "Monday"
-    start_time: str         # HH:MM
-    end_time: str           # HH:MM
+    day_of_week: str        
+    start_time: str         
+    end_time: str           
     room: Optional[str] = None
-    grade_level: str        # e.g. "Grade 1"
+    grade_level: str        
 
 class TimetableSlotUpdate(BaseModel):
     subject_id: Optional[int] = None
@@ -37,8 +36,7 @@ class PeriodCreate(BaseModel):
     end_time: str
     is_break: bool = False
 
-
-# ─────────────────────── Helper ──────────────────────────────────
+# ─────────────────────── Helpers ──────────────────────────────────
 
 def _extract_role(raw_role) -> str:
     if raw_role is None:
@@ -50,14 +48,18 @@ def _extract_role(raw_role) -> str:
         role_str = role_str.split("userrole.")[-1].strip()
     return role_str
 
-
-# ════════════════════════════════════════════════════════════════
-# IMPORTANT: /periods routes MUST come before /{slot_id} routes.
-# FastAPI matches patterns in registration order, so a literal
-# path segment like "periods" must be registered before the
-# /{slot_id} wildcard or POST /periods gets caught by the
-# PUT/DELETE /{slot_id} handler and returns 405.
-# ════════════════════════════════════════════════════════════════
+async def verify_timetable_manager(db: AsyncSession, user: User, school_id: int):
+    if user.is_super_admin:
+        return True
+    membership_result = await db.execute(
+        select(school_users.c.role).where(
+            school_users.c.user_id == user.id,
+            school_users.c.school_id == school_id,
+        )
+    )
+    role = _extract_role(membership_result.scalar_one_or_none())
+    if role not in ["admin", "timetable_manager"]:
+        raise HTTPException(status_code=403, detail="Not authorized to modify timetables")
 
 # ──────────────────────── Period routes ──────────────────────────
 
@@ -67,10 +69,6 @@ async def get_periods(
     db: AsyncSession = Depends(get_db),
     current_school: School = Depends(get_current_school),
 ):
-    """
-    Returns synthetic period rows derived from distinct time windows already
-    in the timetable.  Falls back to standard school-day defaults when empty.
-    """
     result = await db.execute(
         select(TimetableSlot.start_time, TimetableSlot.end_time)
         .where(TimetableSlot.school_id == current_school.id)
@@ -93,10 +91,10 @@ async def get_periods(
         defaults = [
             ("08:00", "09:00", False),
             ("09:00", "10:00", False),
-            ("10:00", "10:15", True),   # break
+            ("10:00", "10:15", True),
             ("10:15", "11:15", False),
             ("11:15", "12:15", False),
-            ("12:15", "12:45", True),   # break
+            ("12:15", "12:45", True),
             ("12:45", "13:45", False),
             ("13:45", "14:45", False),
         ]
@@ -111,15 +109,9 @@ async def get_periods(
 
     return {"success": True, "data": periods}
 
-
 @router.post("/periods", response_model=dict)
 @router.post("/periods/", response_model=dict)
 async def create_period(data: PeriodCreate):
-    """
-    Stub – slots carry their own start/end times so there is no separate
-    periods table yet.  Returns success so the frontend form doesn't error.
-    When you add a TimetablePeriod model, replace this with a real insert.
-    """
     return {
         "success": True,
         "data": {
@@ -130,7 +122,6 @@ async def create_period(data: PeriodCreate):
             "is_break": data.is_break,
         },
     }
-
 
 # ──────────────────────── Slot routes ────────────────────────────
 
@@ -143,14 +134,6 @@ async def get_timetable_slots(
     token_data=Depends(get_current_user),
     current_school: School = Depends(get_current_school),
 ):
-    """
-    Return timetable slots for the school.
-
-    Role visibility:
-    • teacher          → auto-filtered to their own slots only
-    • admin / manager  → optional grade_level / teacher_id filter
-    • student / parent → all slots returned (JS backend handles finer filtering)
-    """
     user: User = token_data[0]
 
     membership_result = await db.execute(
@@ -159,37 +142,9 @@ async def get_timetable_slots(
             school_users.c.school_id == current_school.id,
         )
     )
-    # In server/timetables.py
-
-# Add this helper function at the top near _extract_role
-async def verify_timetable_manager(db: AsyncSession, user: User, school_id: int):
-    if user.is_super_admin:
-        return True
-    membership_result = await db.execute(
-        select(school_users.c.role).where(
-            school_users.c.user_id == user.id,
-            school_users.c.school_id == school_id,
-        )
-    )
-    role = _extract_role(membership_result.scalar_one_or_none())
-    if role not in ["admin", "timetable_manager"]:
-        raise HTTPException(status_code=403, detail="Not authorized to modify timetables")
-
-# Update POST route
-@router.post("", response_model=dict)
-@router.post("/", response_model=dict)
-async def create_timetable_slot(
-    data: TimetableSlotCreate,
-    db: AsyncSession = Depends(get_db),
-    current_school: School = Depends(get_current_school),
-    token_data=Depends(get_current_user), # ADD THIS
-):
-    user = token_data[0] # ADD THIS
-    await verify_timetable_manager(db, user, current_school.id) # ADD THIS
-
-    # ... rest of the existing conflict check and creation logic
     membership = membership_result.first()
     role = _extract_role(membership[0] if membership else None)
+    
     if user.is_super_admin:
         role = "super_admin"
 
@@ -238,15 +193,17 @@ async def create_timetable_slot(
 
     return {"success": True, "data": slots_data}
 
-
 @router.post("", response_model=dict)
 @router.post("/", response_model=dict)
 async def create_timetable_slot(
     data: TimetableSlotCreate,
     db: AsyncSession = Depends(get_db),
     current_school: School = Depends(get_current_school),
+    token_data=Depends(get_current_user),
 ):
-    """Create a slot – checks for scheduling conflicts first."""
+    user = token_data[0]
+    await verify_timetable_manager(db, user, current_school.id)
+
     conflict_q = select(TimetableSlot).where(
         TimetableSlot.school_id == current_school.id,
         TimetableSlot.day_of_week == data.day_of_week,
@@ -275,7 +232,6 @@ async def create_timetable_slot(
     await db.refresh(slot)
     return {"success": True, "data": {"id": slot.id}, "message": "Timetable slot created"}
 
-
 # /{slot_id} routes — registered LAST so "periods" isn't swallowed as a param
 
 @router.put("/{slot_id}", response_model=dict)
@@ -285,7 +241,11 @@ async def update_timetable_slot(
     data: TimetableSlotUpdate,
     db: AsyncSession = Depends(get_db),
     current_school: School = Depends(get_current_school),
+    token_data=Depends(get_current_user),
 ):
+    user = token_data[0]
+    await verify_timetable_manager(db, user, current_school.id)
+
     result = await db.execute(
         select(TimetableSlot).where(
             TimetableSlot.id == slot_id,
@@ -303,14 +263,17 @@ async def update_timetable_slot(
     await db.refresh(slot)
     return {"success": True, "message": "Timetable slot updated"}
 
-
 @router.delete("/{slot_id}", response_model=dict)
 @router.delete("/{slot_id}/", response_model=dict)
 async def delete_timetable_slot(
     slot_id: int,
     db: AsyncSession = Depends(get_db),
     current_school: School = Depends(get_current_school),
+    token_data=Depends(get_current_user),
 ):
+    user = token_data[0]
+    await verify_timetable_manager(db, user, current_school.id)
+    
     result = await db.execute(
         delete(TimetableSlot).where(
             TimetableSlot.id == slot_id,

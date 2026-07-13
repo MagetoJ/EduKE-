@@ -39,7 +39,8 @@ import Boarding from "./pages/Boarding";
 import CurriculumAssessment from "./pages/CurriculumAssessment";
 import SuperAdminDashboard from "./pages/SuperAdminDashboard";
 import TimetableManagerDashboard from "./pages/TimetableManagerDashboard";
-
+import { useLocation } from "react-router";
+import { routeAllowsRole } from "./lib/accessControl";
 function ProtectedRoute({ children }: { children: React.ReactNode }) {
   const { user, isLoading } = useAuth();
   
@@ -57,7 +58,19 @@ function ProtectedRoute({ children }: { children: React.ReactNode }) {
   
   return <>{children}</>;
 }
+function RoleRoute({ children }: { children: React.ReactNode }) {
+  const { user } = useAuth();
+  const location = useLocation();
 
+  if (!user) return <Navigate to="/login" />;
+
+  const effectiveRoles = user.roles && user.roles.length > 0 ? user.roles : [user.role];
+  if (!routeAllowsRole(location.pathname, effectiveRoles)) {
+    return <Navigate to="/dashboard" replace />;
+  }
+
+  return <>{children}</>;
+}
 function AppRoutes() {
   const { user } = useAuth();
   

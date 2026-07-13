@@ -1,4 +1,5 @@
-import os
+import os 
+import ssl
 from sqlalchemy.ext.asyncio import create_async_engine, AsyncSession, async_sessionmaker
 from sqlalchemy.orm import declarative_base
 from tenacity import retry, stop_after_attempt, wait_fixed

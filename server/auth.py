@@ -94,7 +94,63 @@ async def get_current_super_admin(token_data: tuple = Depends(get_current_user))
     return user
 
 from models import school_users, School, UserRole, Permission
+async def get_effective_roles(db: AsyncSession, user_id: int, school_id: int) -> set:
+    from models import school_users, user_additional_roles
+    
+    primary_result = await db.execute(
+        select(school_users.c.role).where(
+            school_users.c.user_id == user_id,
+            school_users.c.school_id == school_id,
+            school_users.c.is_active == True,
+        )
+    )
+    primary_row = primary_result.first()
+    if not primary_row:
+        return set()
 
+    roles = {primary_row.role.value if hasattr(primary_row.role, "value") else str(primary_row.role)}
+
+    extra_result = await db.execute(
+        select(user_additional_roles.c.role).where(
+            user_additional_roles.c.user_id == user_id,
+            user_additional_roles.c.school_id == school_id,
+        )
+    )
+    for row in extra_result:
+        roles.add(row.role.value if hasattr(row.role, "value") else str(row.role))
+
+    return roles
+
+def require_roles(*allowed_roles: str):
+    normalized_allowed = {r.lower() for r in allowed_roles}
+
+    async def role_dependency(
+        token_data: tuple = Depends(get_current_user),
+        db: AsyncSession = Depends(get_db),
+    ):
+        user, payload = token_data
+
+        if getattr(user, "is_super_admin", False):
+            return user
+
+        school_id = payload.get("school_id")
+        if not school_id:
+            raise HTTPException(status_code=403, detail="Access token is not scoped to a specific school")
+
+        effective_roles = await get_effective_roles(db, user.id, school_id)
+
+        if not effective_roles:
+            raise HTTPException(status_code=403, detail="Not authorized for this school")
+
+        if not (effective_roles & normalized_allowed):
+            raise HTTPException(
+                status_code=403,
+                detail=f"This action requires one of the following roles: {', '.join(sorted(normalized_allowed))}",
+            )
+
+        return user
+
+    return role_dependency
 # ... existing code ...
 
 async def get_current_school(token_data: tuple = Depends(get_current_user), db: AsyncSession = Depends(get_db)):
