@@ -1,0 +1,992 @@
+diff --git a/database/schema.sql b/database/schema.sql
+index e430ffb..b6b01c0 100644
+--- a/database/schema.sql
++++ b/database/schema.sql
+@@ -1627,4 +1627,48 @@ CREATE TABLE IF NOT EXISTS cbc_coordinator_assignments (
+     grade_band_id INT NOT NULL REFERENCES cbc_grade_bands(id) ON DELETE CASCADE,
+     assigned_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+     UNIQUE(school_id, coordinator_id, grade_band_id)
+-);
+\ No newline at end of file
++);
++-- 4. Class Teacher daily workload tables (previously lived only in
++--    database/schema_class_teacher.sql and were never applied to the live DB)
++
++-- Daily Attendance Register
++CREATE TABLE IF NOT EXISTS daily_attendance (
++    id SERIAL PRIMARY KEY,
++    school_id INT NOT NULL REFERENCES schools(id) ON DELETE CASCADE,
++    student_id INT NOT NULL REFERENCES students(id) ON DELETE CASCADE,
++    academic_year_id INT REFERENCES academic_years(id) ON DELETE SET NULL,
++    date DATE NOT NULL DEFAULT CURRENT_DATE,
++    status VARCHAR(20) NOT NULL CHECK (status IN ('present', 'absent', 'late')),
++    remarks TEXT,
++    recorded_by INT REFERENCES users(id) ON DELETE SET NULL,
++    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
++    UNIQUE(student_id, date)
++);
++
++-- Holistic Composite Term Remarks (Report Card Summaries)
++CREATE TABLE IF NOT EXISTS class_teacher_remarks (
++    id SERIAL PRIMARY KEY,
++    school_id INT NOT NULL REFERENCES schools(id) ON DELETE CASCADE,
++    student_id INT NOT NULL REFERENCES students(id) ON DELETE CASCADE,
++    academic_year_id INT REFERENCES academic_years(id) ON DELETE SET NULL,
++    term INT NOT NULL CHECK (term BETWEEN 1 AND 3),
++    remarks TEXT NOT NULL,
++    recorded_by INT REFERENCES users(id) ON DELETE SET NULL,
++    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
++    UNIQUE(student_id, academic_year_id, term)
++);
++
++-- Student Welfare & Behavioural Escalations
++CREATE TABLE IF NOT EXISTS student_welfare_escalations (
++    id SERIAL PRIMARY KEY,
++    school_id INT NOT NULL REFERENCES schools(id) ON DELETE CASCADE,
++    student_id INT NOT NULL REFERENCES students(id) ON DELETE CASCADE,
++    escalated_by INT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
++    reason VARCHAR(255) NOT NULL,
++    details TEXT,
++    status VARCHAR(20) NOT NULL DEFAULT 'pending' CHECK (status IN ('pending', 'under_review', 'resolved')),
++    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
++);
++
++CREATE INDEX IF NOT EXISTS idx_daily_attendance_date ON daily_attendance(school_id, date);
++CREATE INDEX IF NOT EXISTS idx_welfare_student ON student_welfare_escalations(student_id);
+diff --git a/server/class_teacher.py b/server/class_teacher.py
+index 5aa55dd..f4b8121 100644
+--- a/server/class_teacher.py
++++ b/server/class_teacher.py
+@@ -1,23 +1,24 @@
+-from fastapi import APIRouter, Depends, HTTPException, status
+-from sqlalchemy.orm import Session
+-from sqlalchemy import select, update
++from fastapi import APIRouter, Depends, HTTPException
++from sqlalchemy.ext.asyncio import AsyncSession
++from sqlalchemy import select
+ from sqlalchemy.dialects.postgresql import insert
+-from typing import List
++from typing import List, Optional
+ from pydantic import BaseModel
+ from datetime import date
+ 
+-from database import async_session_maker
+-from models import User, Student
++from database import get_db
++from models import User, Student, AcademicYear
+ from models_roles import ClassTeacherAssignment
+ from models_class_teacher import DailyAttendance, ClassTeacherRemark, StudentWelfareEscalation
++from auth import get_current_user, require_roles
+ 
+ router = APIRouter(prefix="/api/class-teacher", tags=["Class Teacher Workloads"])
+ 
+ # --- Request Schemas ---
+ class AttendanceEntry(BaseModel):
+     student_id: int
+-    status: str # present, absent, late
+-    remarks: str | None = None
++    status: str  # present, absent, late
++    remarks: Optional[str] = None
+ 
+ class AttendanceBatchPayload(BaseModel):
+     date: date
+@@ -31,17 +32,37 @@ class RemarkPayload(BaseModel):
+ class EscalationPayload(BaseModel):
+     student_id: int
+     reason: str
+-    details: str | None = None
++    details: Optional[str] = None
+ 
+-# Helper to verify class teacher context
+-async def get_managed_class(teacher_id: int, db) -> ClassTeacherAssignment:
++class AssignmentPayload(BaseModel):
++    teacher_id: int
++    grade_level: str
++    stream_section: str
++    academic_year_id: Optional[int] = None
++
++
++# --- Helper to resolve the calling user's identity and school ---
++async def get_requesting_teacher(token_data: tuple = Depends(get_current_user)) -> tuple[User, int]:
++    """Returns (user, school_id) for the authenticated caller."""
++    user, payload = token_data
++    school_id = payload.get("school_id")
++    if not school_id:
++        raise HTTPException(status_code=403, detail="Access token is not scoped to a specific school")
++    return user, school_id
++
++
++# Helper to verify class teacher context, scoped to the caller's own school
++async def get_managed_class(teacher_id: int, school_id: int, db: AsyncSession) -> ClassTeacherAssignment:
+     result = await db.execute(
+-        select(ClassTeacherAssignment).filter(ClassTeacherAssignment.teacher_id == teacher_id)
++        select(ClassTeacherAssignment).filter(
++            ClassTeacherAssignment.teacher_id == teacher_id,
++            ClassTeacherAssignment.school_id == school_id,
++        )
+     )
+     assignment = result.scalar_one_or_none()
+     if not assignment:
+         raise HTTPException(
+-            status_code=403, 
++            status_code=403,
+             detail="Forbidden: Current user is not assigned as a Class Teacher to any active stream."
+         )
+     return assignment
+@@ -50,101 +71,220 @@ async def get_managed_class(teacher_id: int, db) -> ClassTeacherAssignment:
+ 
+ @router.get("/my-managed-stream")
+ async def get_managed_stream_details(
+-    # Replace with your actual auth dependency (e.g., current_user: User = Depends(get_current_user))
+-    teacher_id: int = 1 
++    identity: tuple = Depends(get_requesting_teacher),
++    db: AsyncSession = Depends(get_db),
+ ):
+-    async with async_session_maker() as db:
+-        assignment = await get_managed_class(teacher_id, db)
+-        
+-        # Get all students enrolled in this specific grade and stream section
+-        student_result = await db.execute(
+-            select(Student).filter(
+-                Student.school_id == assignment.school_id,
+-                Student.grade == assignment.grade_level,
+-                Student.status == "active"
+-            )
++    user, school_id = identity
++    assignment = await get_managed_class(user.id, school_id, db)
++
++    # Get all students enrolled in this specific grade AND stream section.
++    # NOTE: the Students form does not currently let admins set class_section,
++    # so most existing records have it as NULL. Until that's added, include
++    # grade-matched students with no recorded stream alongside exact matches,
++    # rather than silently returning an empty roster.
++    student_result = await db.execute(
++        select(Student).filter(
++            Student.school_id == assignment.school_id,
++            Student.grade == assignment.grade_level,
++            Student.status == "active"
+         )
+-        students = student_result.scalars().all()
+-        
+-        return {
+-            "stream_info": {
+-                "grade_level": assignment.grade_level,
+-                "stream_section": assignment.stream_section
+-            },
+-            "students": [
+-                {
+-                    "id": s.id,
+-                    "first_name": s.first_name,
+-                    "last_name": s.last_name,
+-                    "admission_number": s.admission_number,
+-                    "current_balance": 25000 # Example fee balance fallback
+-                } for s in students
+-            ]
+-        }
++    )
++    all_grade_students = student_result.scalars().all()
++    students = [
++        s for s in all_grade_students
++        if s.class_section == assignment.stream_section or not s.class_section
++    ]
++
++    return {
++        "stream_info": {
++            "grade_level": assignment.grade_level,
++            "stream_section": assignment.stream_section
++        },
++        "students": [
++            {
++                "id": s.id,
++                "first_name": s.first_name,
++                "last_name": s.last_name,
++                "admission_number": s.admission_number,
++                "current_balance": s.current_balance or 0
++            } for s in students
++        ]
++    }
+ 
+ @router.post("/attendance/batch")
+ async def submit_batch_attendance(
+-    payload: AttendanceBatchPayload, 
+-    teacher_id: int = 1
++    payload: AttendanceBatchPayload,
++    identity: tuple = Depends(get_requesting_teacher),
++    db: AsyncSession = Depends(get_db),
+ ):
+-    async with async_session_maker() as db:
+-        assignment = await get_managed_class(teacher_id, db)
+-        
+-        for entry in payload.entries:
+-            # Upsert attendance using PostgreSQL INSERT ... ON CONFLICT
+-            stmt = insert(DailyAttendance).values(
+-                school_id=assignment.school_id,
+-                student_id=entry.student_id,
+-                date=payload.date,
+-                status=entry.status,
+-                remarks=entry.remarks,
+-                recorded_by=teacher_id
+-            ).on_conflict_do_update(
+-                index_elements=['student_id', 'date'],
+-                set_={
+-                    'status': entry.status,
+-                    'remarks': entry.remarks,
+-                    'recorded_by': teacher_id
+-                }
+-            )
+-            await db.execute(stmt)
+-            
+-        await db.commit()
+-        return {"status": "success", "message": "Batch attendance submitted successfully."}
++    user, school_id = identity
++    assignment = await get_managed_class(user.id, school_id, db)
+ 
+-@router.post("/remarks")
+-async def submit_term_remarks(payload: RemarkPayload, teacher_id: int = 1):
+-    async with async_session_maker() as db:
+-        assignment = await get_managed_class(teacher_id, db)
+-        
+-        stmt = insert(ClassTeacherRemark).values(
++    for entry in payload.entries:
++        stmt = insert(DailyAttendance).values(
+             school_id=assignment.school_id,
+-            student_id=payload.student_id,
+-            term=payload.term,
+-            remarks=payload.remarks,
+-            recorded_by=teacher_id
++            student_id=entry.student_id,
++            academic_year_id=assignment.academic_year_id,
++            date=payload.date,
++            status=entry.status,
++            remarks=entry.remarks,
++            recorded_by=user.id
+         ).on_conflict_do_update(
+-            index_elements=['student_id', 'academic_year_id', 'term'],
+-            set_={'remarks': payload.remarks, 'recorded_by': teacher_id}
++            index_elements=['student_id', 'date'],
++            set_={
++                'status': entry.status,
++                'remarks': entry.remarks,
++                'recorded_by': user.id
++            }
+         )
+-        
+         await db.execute(stmt)
+-        await db.commit()
+-        return {"status": "success", "message": "Term report card remarks saved successfully."}
++
++    await db.commit()
++    return {"status": "success", "message": "Batch attendance submitted successfully."}
++
++@router.post("/remarks")
++async def submit_term_remarks(
++    payload: RemarkPayload,
++    identity: tuple = Depends(get_requesting_teacher),
++    db: AsyncSession = Depends(get_db),
++):
++    user, school_id = identity
++    assignment = await get_managed_class(user.id, school_id, db)
++
++    stmt = insert(ClassTeacherRemark).values(
++        school_id=assignment.school_id,
++        student_id=payload.student_id,
++        academic_year_id=assignment.academic_year_id,
++        term=payload.term,
++        remarks=payload.remarks,
++        recorded_by=user.id
++    ).on_conflict_do_update(
++        index_elements=['student_id', 'academic_year_id', 'term'],
++        set_={'remarks': payload.remarks, 'recorded_by': user.id}
++    )
++
++    await db.execute(stmt)
++    await db.commit()
++    return {"status": "success", "message": "Term report card remarks saved successfully."}
+ 
+ @router.post("/escalate")
+-async def escalate_student_concern(payload: EscalationPayload, teacher_id: int = 1):
+-    async with async_session_maker() as db:
+-        assignment = await get_managed_class(teacher_id, db)
+-        
+-        escalation = StudentWelfareEscalation(
+-            school_id=assignment.school_id,
+-            student_id=payload.student_id,
+-            escalated_by=teacher_id,
+-            reason=payload.reason,
+-            details=payload.details
++async def escalate_student_concern(
++    payload: EscalationPayload,
++    identity: tuple = Depends(get_requesting_teacher),
++    db: AsyncSession = Depends(get_db),
++):
++    user, school_id = identity
++    assignment = await get_managed_class(user.id, school_id, db)
++
++    escalation = StudentWelfareEscalation(
++        school_id=assignment.school_id,
++        student_id=payload.student_id,
++        escalated_by=user.id,
++        reason=payload.reason,
++        details=payload.details
++    )
++
++    db.add(escalation)
++    await db.commit()
++    return {"status": "success", "message": "Student concern successfully escalated to administration."}
++
++
++# --- Admin-facing management of Class Teacher <-> Stream assignments ---
++# (Previously the only way to create these rows was a one-off seed script;
++# there was no way for an admin to view or manage them from the app.)
++
++@router.get("/assignments")
++async def list_assignments(
++    current_user: User = Depends(require_roles("admin")),
++    token_data: tuple = Depends(get_current_user),
++    db: AsyncSession = Depends(get_db),
++):
++    _, payload = token_data
++    school_id = payload.get("school_id")
++
++    result = await db.execute(
++        select(ClassTeacherAssignment, User)
++        .join(User, User.id == ClassTeacherAssignment.teacher_id)
++        .where(ClassTeacherAssignment.school_id == school_id)
++    )
++    rows = result.all()
++    return [
++        {
++            "id": assignment.id,
++            "teacher_id": assignment.teacher_id,
++            "teacher_name": teacher.full_name,
++            "grade_level": assignment.grade_level,
++            "stream_section": assignment.stream_section,
++            "academic_year_id": assignment.academic_year_id,
++        }
++        for assignment, teacher in rows
++    ]
++
++@router.post("/assignments")
++async def upsert_assignment(
++    payload: AssignmentPayload,
++    current_user: User = Depends(require_roles("admin")),
++    token_data: tuple = Depends(get_current_user),
++    db: AsyncSession = Depends(get_db),
++):
++    """Assign (or reassign) a teacher as Class Teacher of a grade/stream."""
++    _, jwt_payload = token_data
++    school_id = jwt_payload.get("school_id")
++
++    academic_year_id = payload.academic_year_id
++    if academic_year_id is None:
++        year_result = await db.execute(
++            select(AcademicYear.id).where(
++                AcademicYear.school_id == school_id,
++                AcademicYear.status == "active",
++            )
++        )
++        academic_year_id = year_result.scalar_one_or_none()
++
++    existing = await db.execute(
++        select(ClassTeacherAssignment).where(
++            ClassTeacherAssignment.school_id == school_id,
++            ClassTeacherAssignment.grade_level == payload.grade_level,
++            ClassTeacherAssignment.stream_section == payload.stream_section,
++            ClassTeacherAssignment.academic_year_id == academic_year_id,
+         )
+-        
+-        db.add(escalation)
+-        await db.commit()
+-        return {"status": "success", "message": "Student concern successfully escalated to administration."}
+\ No newline at end of file
++    )
++    assignment = existing.scalar_one_or_none()
++    if assignment:
++        assignment.teacher_id = payload.teacher_id
++    else:
++        assignment = ClassTeacherAssignment(
++            school_id=school_id,
++            teacher_id=payload.teacher_id,
++            grade_level=payload.grade_level,
++            stream_section=payload.stream_section,
++            academic_year_id=academic_year_id,
++        )
++        db.add(assignment)
++
++    await db.commit()
++    return {"status": "success", "message": "Class Teacher assignment saved."}
++
++@router.delete("/assignments/{assignment_id}")
++async def delete_assignment(
++    assignment_id: int,
++    current_user: User = Depends(require_roles("admin")),
++    token_data: tuple = Depends(get_current_user),
++    db: AsyncSession = Depends(get_db),
++):
++    _, payload = token_data
++    school_id = payload.get("school_id")
++
++    result = await db.execute(
++        select(ClassTeacherAssignment).where(
++            ClassTeacherAssignment.id == assignment_id,
++            ClassTeacherAssignment.school_id == school_id,
++        )
++    )
++    assignment = result.scalar_one_or_none()
++    if not assignment:
++        raise HTTPException(status_code=404, detail="Assignment not found")
++
++    await db.delete(assignment)
++    await db.commit()
++    return {"status": "success", "message": "Class Teacher assignment removed."}
+diff --git a/server/models.py b/server/models.py
+index 98f323b..8794955 100644
+--- a/server/models.py
++++ b/server/models.py
+@@ -129,7 +129,14 @@ class Student(Base):
+     last_name = Column(String(100), nullable=False)
+     grade = Column(String(20), nullable=False)
+     current_balance = Column(Float, default=0.0) # Borrowed from SmartBiz Customer logic
+-    
++
++    # NOTE: these columns already exist in database/schema.sql (the deployed schema)
++    # but were missing from this ORM model, which meant any query referencing them
++    # (e.g. the class-teacher roster lookup) would fail with AttributeError.
++    status = Column(String(20), default="active")  # active, inactive, transferred, graduated, retained, archived
++    class_section = Column(String(20), nullable=True)  # stream, e.g. 'East', 'A'
++    admission_number = Column("student_id_number", String(50), nullable=True)
++
+     created_at = Column(DateTime, default=datetime.utcnow)
+ 
+     # Relationships
+diff --git a/server/users.py b/server/users.py
+index a4606df..157fd25 100644
+--- a/server/users.py
++++ b/server/users.py
+@@ -5,27 +5,58 @@ from typing import List, Optional
+ from pydantic import BaseModel, EmailStr, model_validator
+ 
+ from database import get_db
+-from models import User, School, school_users, UserRole
++from models import User, School, school_users, UserRole, AcademicYear
++from models_roles import ClassTeacherAssignment
+ from auth import get_current_school, get_password_hash
+ 
+ router = APIRouter(prefix="/users", tags=["User Management"])
+ 
+ # --- Helper to map frontend roles to database UserRoles ---
+ def map_frontend_role_to_db_role(raw_role: str) -> UserRole:
+-    raw_role = raw_role.lower()
+-    if raw_role in ["teacher", "class_teacher", "hod", "cbc_coordinator", "exam_officer"]:
+-        return UserRole.TEACHER
+-    elif raw_role in ["administrator"]:
+-        return UserRole.ADMIN
+-    elif raw_role in ["student"]:
++    raw_role = raw_role.lower().strip()
++
++    # Aliases that don't match a UserRole value verbatim
++    aliases = {
++        "administrator": "admin",
++    }
++    raw_role = aliases.get(raw_role, raw_role)
++
++    # Prefer an exact match against the real UserRole enum so specialized
++    # roles (class_teacher, hod, cbc_coordinator, exam_officer, registrar,
++    # timetable_manager, transport_manager, boarding_master, hr_manager,
++    # admission_officer, nurse, counselor, librarian, ...) are stored as
++    # themselves instead of being flattened into a generic 'teacher'/'staff'
++    # bucket, which previously made role-based access checks (require_roles)
++    # impossible to satisfy for these accounts.
++    try:
++        return UserRole(raw_role)
++    except ValueError:
++        pass
++
++    if raw_role in ["student"]:
+         return UserRole.STUDENT
+     elif raw_role in ["parent"]:
+         return UserRole.PARENT
+     else:
+-        # registrar, timetable_manager, transport_manager, boarding_master, hr_manager, etc.
+         return UserRole.STAFF
+ 
+ 
++def parse_class_assigned(class_assigned: str) -> tuple[str, str]:
++    """
++    Splits the 'Assigned Class' string used by the Staff form
++    (e.g. 'Grade 10 - Section A') into (grade_level, stream_section).
++    Falls back to a 'Main' stream if no section is present, since
++    class_teacher_assignments.stream_section is NOT NULL.
++    """
++    if " - Section " in class_assigned:
++        grade_level, stream_section = class_assigned.split(" - Section ", 1)
++        return grade_level.strip(), stream_section.strip()
++    if " - " in class_assigned:
++        grade_level, stream_section = class_assigned.split(" - ", 1)
++        return grade_level.strip(), stream_section.strip()
++    return class_assigned.strip(), "Main"
++
++
+ # --- Schemas ---
+ class UserCreate(BaseModel):
+     username: Optional[str] = None
+@@ -133,7 +164,44 @@ async def create_school_user(
+             is_active=True
+         )
+     )
+-    
++
++    # 5. If this is a Class Teacher, actually assign them to the grade/stream
++    #    they were given in the form. Without this, the account has the role
++    #    label but no managed class, so the Class Teacher dashboard has
++    #    nothing to show and every workload endpoint returns 403.
++    if mapped_role == UserRole.CLASS_TEACHER and data.class_assigned:
++        grade_level, stream_section = parse_class_assigned(data.class_assigned)
++
++        academic_year_id = None
++        year_result = await db.execute(
++            select(AcademicYear.id).where(
++                AcademicYear.school_id == current_school.id,
++                AcademicYear.status == "active",
++            )
++        )
++        academic_year_id = year_result.scalar_one_or_none()
++
++        existing_assignment = await db.execute(
++            select(ClassTeacherAssignment).where(
++                ClassTeacherAssignment.school_id == current_school.id,
++                ClassTeacherAssignment.grade_level == grade_level,
++                ClassTeacherAssignment.stream_section == stream_section,
++                ClassTeacherAssignment.academic_year_id == academic_year_id,
++            )
++        )
++        assignment = existing_assignment.scalar_one_or_none()
++        if assignment:
++            # Re-assigning an existing stream to a (possibly new) teacher
++            assignment.teacher_id = new_user.id
++        else:
++            db.add(ClassTeacherAssignment(
++                school_id=current_school.id,
++                teacher_id=new_user.id,
++                grade_level=grade_level,
++                stream_section=stream_section,
++                academic_year_id=academic_year_id,
++            ))
++
+     await db.commit()
+     await db.refresh(new_user)
+     return new_user
+diff --git a/src/react-app/components/layout/Sidebar.tsx b/src/react-app/components/layout/Sidebar.tsx
+index 1f8ac5b..f63c606 100644
+--- a/src/react-app/components/layout/Sidebar.tsx
++++ b/src/react-app/components/layout/Sidebar.tsx
+@@ -20,7 +20,8 @@ import {
+   Bus,
+   Home,
+   TrendingUp,
+-  Shield
++  Shield,
++  ClipboardCheck
+ } from 'lucide-react'
+ import { cn } from '../../lib/utils'
+ import { useAuth, UserRole } from '../../contexts/AuthContext'
+@@ -99,6 +100,12 @@ const navItems: NavItem[] = [
+     icon: BookOpen,
+     roles: ['teacher', 'hod', 'class_teacher']
+   },
++  {
++    title: 'Class Teacher Workspace',
++    href: '/dashboard/class-teacher',
++    icon: ClipboardCheck,
++    roles: ['class_teacher']
++  },
+   {
+     title: 'Timetable',
+     href: '/dashboard/timetable',
+diff --git a/src/react-app/lib/accessControl.ts b/src/react-app/lib/accessControl.ts
+index 726715c..e3b9239 100644
+--- a/src/react-app/lib/accessControl.ts
++++ b/src/react-app/lib/accessControl.ts
+@@ -12,6 +12,7 @@ export const routeRoles: { path: string; roles: Role[] }[] = [
+   { path: '/dashboard/parent', roles: ['parent'] },
+   { path: '/dashboard/student-dashboard', roles: ['student'] },
+   { path: '/dashboard/teacher-dashboard', roles: ['teacher', 'hod', 'class_teacher'] },
++  { path: '/dashboard/class-teacher', roles: ['class_teacher', 'admin', 'super_admin'] },
+   { path: '/dashboard/timetable-manager', roles: ['timetable_manager', 'admin'] },
+   { path: '/dashboard/timetable', roles: ['admin', 'teacher', 'parent', 'student', 'timetable_manager', 'registrar', 'hod'] },
+   { path: '/dashboard/communications', roles: ['admin', 'teacher', 'parent', 'registrar', 'hod', 'hr_manager', 'admission_officer', 'nurse'] },
+diff --git a/src/react-app/pages/ClassTeacherDashboard.tsx b/src/react-app/pages/ClassTeacherDashboard.tsx
+index da02e87..9ee0b88 100644
+--- a/src/react-app/pages/ClassTeacherDashboard.tsx
++++ b/src/react-app/pages/ClassTeacherDashboard.tsx
+@@ -1,116 +1,285 @@
+-import React, { useState, useEffect } from 'react';
++import { useState, useEffect, useCallback } from 'react';
+ import { Card, CardContent, CardHeader, CardTitle } from '../components/ui/card';
+ import { Button } from '../components/ui/button';
+ import { Badge } from '../components/ui/badge';
+-import { ClipboardList, FileText, Landmark, ShieldAlert } from 'lucide-react';
++import { ClipboardList, FileText, Landmark, ShieldAlert, Loader2 } from 'lucide-react';
+ import { useApi } from '../contexts/AuthContext';
+ 
++interface StreamStudent {
++  id: number;
++  first_name: string;
++  last_name: string;
++  admission_number: string | null;
++  current_balance: number;
++}
++
++type AttendanceStatus = 'present' | 'absent' | 'late';
++
+ export default function ClassTeacherDashboard() {
+   const api = useApi();
+-  const [classDetails, setClassDetails] = useState<any>(null);
+-  const [roster, setRoster] = useState([]);
+-  const [activeTab, setActiveTab] = useState('attendance'); // attendance | report-cards | administrative
++  const [classDetails, setClassDetails] = useState<{ grade_level: string; stream_section: string } | null>(null);
++  const [roster, setRoster] = useState<StreamStudent[]>([]);
++  const [activeTab, setActiveTab] = useState<'attendance' | 'report-cards' | 'administrative'>('attendance');
++  const [loading, setLoading] = useState(true);
++  const [error, setError] = useState('');
+ 
+-  useEffect(() => {
+-    // Fetch structural stream managed by this class teacher user
+-    api('/api/courses/my-managed-stream')
++  // Attendance tab state
++  const [attendance, setAttendance] = useState<Record<number, AttendanceStatus>>({});
++  const [savingAttendance, setSavingAttendance] = useState(false);
++
++  // Remarks tab state
++  const [remarks, setRemarks] = useState<Record<number, string>>({});
++  const [savingRemarkId, setSavingRemarkId] = useState<number | null>(null);
++  const [currentTerm] = useState(1);
++
++  // Escalation state
++  const [escalatingStudentId, setEscalatingStudentId] = useState<number | null>(null);
++  const [escalationReason, setEscalationReason] = useState('');
++  const [escalationDetails, setEscalationDetails] = useState('');
++  const [submittingEscalation, setSubmittingEscalation] = useState(false);
++
++  const loadManagedStream = useCallback(() => {
++    setLoading(true);
++    setError('');
++    api('/api/class-teacher/my-managed-stream')
+       .then(res => res.json())
+       .then(data => {
+         setClassDetails(data.stream_info);
+         setRoster(data.students || []);
+-      });
++      })
++      .catch(err => {
++        setError(err.message || 'You are not currently assigned to a class as Class Teacher.');
++      })
++      .finally(() => setLoading(false));
+   }, [api]);
+ 
++  useEffect(() => {
++    loadManagedStream();
++  }, [loadManagedStream]);
++
++  const markAttendance = (studentId: number, status: AttendanceStatus) => {
++    setAttendance(prev => ({ ...prev, [studentId]: status }));
++  };
++
++  const submitAttendance = async () => {
++    setSavingAttendance(true);
++    setError('');
++    try {
++      const entries = roster.map(student => ({
++        student_id: student.id,
++        status: attendance[student.id] || 'present',
++      }));
++      await api('/api/class-teacher/attendance/batch', {
++        method: 'POST',
++        body: JSON.stringify({ date: new Date().toISOString().slice(0, 10), entries }),
++      });
++    } catch (err: any) {
++      setError(err.message || 'Failed to submit attendance.');
++    } finally {
++      setSavingAttendance(false);
++    }
++  };
++
++  const saveRemark = async (studentId: number) => {
++    setSavingRemarkId(studentId);
++    setError('');
++    try {
++      await api('/api/class-teacher/remarks', {
++        method: 'POST',
++        body: JSON.stringify({
++          student_id: studentId,
++          term: currentTerm,
++          remarks: remarks[studentId] || '',
++        }),
++      });
++    } catch (err: any) {
++      setError(err.message || 'Failed to save remarks.');
++    } finally {
++      setSavingRemarkId(null);
++    }
++  };
++
++  const submitEscalation = async () => {
++    if (escalatingStudentId === null || !escalationReason) return;
++    setSubmittingEscalation(true);
++    setError('');
++    try {
++      await api('/api/class-teacher/escalate', {
++        method: 'POST',
++        body: JSON.stringify({
++          student_id: escalatingStudentId,
++          reason: escalationReason,
++          details: escalationDetails || undefined,
++        }),
++      });
++      setEscalatingStudentId(null);
++      setEscalationReason('');
++      setEscalationDetails('');
++    } catch (err: any) {
++      setError(err.message || 'Failed to escalate concern.');
++    } finally {
++      setSubmittingEscalation(false);
++    }
++  };
++
++  if (loading) {
++    return (
++      <div className="flex items-center justify-center p-12 text-slate-500">
++        <Loader2 className="w-5 h-5 animate-spin mr-2" /> Loading your class...
++      </div>
++    );
++  }
++
+   return (
+     <div className="space-y-6 p-6">
+       <div className="flex justify-between items-center">
+         <div>
+           <h1 className="text-3xl font-bold text-slate-900">Class Teacher Workspace</h1>
+           <p className="text-slate-600">
+-            Holistic tracking environment for {classDetails ? `${classDetails.grade_level} ${classDetails.stream_section}` : 'Loading assigned stream...'}
++            Holistic tracking environment for {classDetails ? `${classDetails.grade_level} ${classDetails.stream_section}` : 'your assigned stream'}
+           </p>
+         </div>
+       </div>
+ 
+-      {/* Management Action Group Filters */}
+-      <div className="flex gap-2 border-b pb-2">
+-        <Button variant={activeTab === 'attendance' ? 'default' : 'ghost'} onClick={() => setActiveTab('attendance')} className="gap-2">
+-          <ClipboardList className="w-4 h-4" /> Daily Register Attendance
+-        </Button>
+-        <Button variant={activeTab === 'report-cards' ? 'default' : 'ghost'} onClick={() => setActiveTab('report-cards')} className="gap-2">
+-          <FileText className="w-4 h-4" /> Compile Composite Report Cards
+-        </Button>
+-        <Button variant={activeTab === 'administrative' ? 'default' : 'ghost'} onClick={() => setActiveTab('administrative')} className="gap-2">
+-          <Landmark className="w-4 h-4" /> Financial Balances & Welfare
+-        </Button>
+-      </div>
+-
+-      {/* Subsection Tab 1: Daily Register */}
+-      {activeTab === 'attendance' && (
+-        <Card>
+-          <CardHeader><CardTitle>Daily Roll-Call Register Board</CardTitle></CardHeader>
+-          <CardContent className="space-y-2">
+-            {roster.map((student: any) => (
+-              <div key={student.id} className="p-3 border rounded-xl flex items-center justify-between bg-background shadow-sm">
+-                <span className="font-semibold text-sm text-slate-800">{student.first_name} {student.last_name}</span>
+-                <div className="flex gap-2">
+-                  <Button size="sm" variant="success" className="bg-green-600 text-white text-xs px-3 py-1">Present</Button>
+-                  <Button size="sm" variant="destructive" className="bg-red-600 text-white text-xs px-3 py-1">Absent</Button>
+-                  <Button size="sm" variant="outline" className="text-xs px-3 py-1">Late</Button>
+-                </div>
+-              </div>
+-            ))}
+-            <Button className="mt-4 w-full bg-slate-900 text-white">Commit Final Attendance Log</Button>
+-          </CardContent>
+-        </Card>
++      {error && (
++        <div className="p-3 rounded-md bg-red-50 border border-red-200 text-red-700 text-sm">
++          {error}
++        </div>
+       )}
+ 
+-      {/* Subsection Tab 2: Holistic Composite Progress Compilation */}
+-      {activeTab === 'report-cards' && (
+-        <Card>
+-          <CardHeader><CardTitle>Composite Term Progress Summary & Narrative Comments</CardTitle></CardHeader>
+-          <CardContent className="space-y-4">
+-            <p className="text-xs text-muted-foreground">Add overall behavioral recommendations alongside learning area summaries.</p>
+-            {roster.map((student: any) => (
+-              <div key={student.id} className="p-4 border rounded-xl bg-background space-y-3 shadow-sm">
+-                <div className="flex justify-between items-center">
+-                  <h4 className="font-bold text-sm text-slate-800">{student.first_name} {student.last_name}</h4>
+-                  <Button size="sm" variant="outline">Preview Full Marks Slate</Button>
+-                </div>
+-                <textarea 
+-                  className="w-full text-xs p-2 border rounded-md bg-muted/40 placeholder:text-muted-foreground" 
+-                  placeholder="Enter custom Class Teacher summative review remarks here..."
+-                  rows={2}
+-                />
+-              </div>
+-            ))}
+-            <Button className="w-full">Publish and Dispatch Report Cards</Button>
+-          </CardContent>
+-        </Card>
++      {!classDetails && !error && (
++        <div className="p-3 rounded-md bg-amber-50 border border-amber-200 text-amber-800 text-sm">
++          You have not been assigned to a class stream yet. Ask your administrator to assign you as Class Teacher of a grade/stream.
++        </div>
+       )}
+ 
+-      {/* Subsection Tab 3: Financial & Welfare Status Overviews */}
+-      {activeTab === 'administrative' && (
+-        <Card>
+-          <CardHeader><CardTitle>Fee Overviews & Welfare Escalation Control</CardTitle></CardHeader>
+-          <CardContent className="space-y-2">
+-            {roster.map((student: any) => (
+-              <div key={student.id} className="p-3 border rounded-xl flex items-center justify-between bg-background shadow-sm">
+-                <div>
+-                  <span className="font-semibold text-sm text-slate-800">{student.first_name} {student.last_name}</span>
+-                  <p className="text-xs text-muted-foreground">Outstanding Fee Invoice Balance: KES {student.current_balance?.toLocaleString() || '0'}</p>
+-                </div>
+-                <div className="flex items-center gap-2">
+-                  {student.current_balance > 0 && <Badge variant="destructive" className="bg-red-100 text-red-800 text-xs">Arrears</Badge>}
+-                  <Button size="sm" variant="outline" className="text-xs gap-1 text-amber-700 border-amber-600 hover:bg-amber-50">
+-                    <ShieldAlert className="w-3.5 h-3.5" /> Escalate Concern
+-                  </Button>
+-                </div>
+-              </div>
+-            ))}
+-          </CardContent>
+-        </Card>
++      {classDetails && (
++        <>
++          {/* Management Action Group Filters */}
++          <div className="flex gap-2 border-b pb-2">
++            <Button variant={activeTab === 'attendance' ? 'default' : 'ghost'} onClick={() => setActiveTab('attendance')} className="gap-2">
++              <ClipboardList className="w-4 h-4" /> Daily Register Attendance
++            </Button>
++            <Button variant={activeTab === 'report-cards' ? 'default' : 'ghost'} onClick={() => setActiveTab('report-cards')} className="gap-2">
++              <FileText className="w-4 h-4" /> Compile Composite Report Cards
++            </Button>
++            <Button variant={activeTab === 'administrative' ? 'default' : 'ghost'} onClick={() => setActiveTab('administrative')} className="gap-2">
++              <Landmark className="w-4 h-4" /> Financial Balances & Welfare
++            </Button>
++          </div>
++
++          {/* Subsection Tab 1: Daily Register */}
++          {activeTab === 'attendance' && (
++            <Card>
++              <CardHeader><CardTitle>Daily Roll-Call Register Board</CardTitle></CardHeader>
++              <CardContent className="space-y-2">
++                {roster.map((student) => {
++                  const current = attendance[student.id] || 'present';
++                  return (
++                    <div key={student.id} className="p-3 border rounded-xl flex items-center justify-between bg-background shadow-sm">
++                      <span className="font-semibold text-sm text-slate-800">{student.first_name} {student.last_name}</span>
++                      <div className="flex gap-2">
++                        <Button size="sm" variant={current === 'present' ? 'default' : 'outline'} className={current === 'present' ? 'bg-green-600 text-white text-xs px-3 py-1' : 'text-xs px-3 py-1'} onClick={() => markAttendance(student.id, 'present')}>Present</Button>
++                        <Button size="sm" variant={current === 'absent' ? 'destructive' : 'outline'} className={current === 'absent' ? 'bg-red-600 text-white text-xs px-3 py-1' : 'text-xs px-3 py-1'} onClick={() => markAttendance(student.id, 'absent')}>Absent</Button>
++                        <Button size="sm" variant={current === 'late' ? 'default' : 'outline'} className="text-xs px-3 py-1" onClick={() => markAttendance(student.id, 'late')}>Late</Button>
++                      </div>
++                    </div>
++                  );
++                })}
++                <Button className="mt-4 w-full bg-slate-900 text-white" onClick={submitAttendance} disabled={savingAttendance || roster.length === 0}>
++                  {savingAttendance ? 'Submitting...' : 'Commit Final Attendance Log'}
++                </Button>
++              </CardContent>
++            </Card>
++          )}
++
++          {/* Subsection Tab 2: Holistic Composite Progress Compilation */}
++          {activeTab === 'report-cards' && (
++            <Card>
++              <CardHeader><CardTitle>Composite Term Progress Summary & Narrative Comments</CardTitle></CardHeader>
++              <CardContent className="space-y-4">
++                <p className="text-xs text-muted-foreground">Add overall behavioral recommendations alongside learning area summaries.</p>
++                {roster.map((student) => (
++                  <div key={student.id} className="p-4 border rounded-xl bg-background space-y-3 shadow-sm">
++                    <div className="flex justify-between items-center">
++                      <h4 className="font-bold text-sm text-slate-800">{student.first_name} {student.last_name}</h4>
++                      <Button
++                        size="sm"
++                        onClick={() => saveRemark(student.id)}
++                        disabled={savingRemarkId === student.id}
++                      >
++                        {savingRemarkId === student.id ? 'Saving...' : 'Save Remark'}
++                      </Button>
++                    </div>
++                    <textarea
++                      className="w-full text-xs p-2 border rounded-md bg-muted/40 placeholder:text-muted-foreground"
++                      placeholder="Enter custom Class Teacher summative review remarks here..."
++                      rows={2}
++                      value={remarks[student.id] ?? ''}
++                      onChange={(e) => setRemarks(prev => ({ ...prev, [student.id]: e.target.value }))}
++                    />
++                  </div>
++                ))}
++              </CardContent>
++            </Card>
++          )}
++
++          {/* Subsection Tab 3: Financial & Welfare Status Overviews */}
++          {activeTab === 'administrative' && (
++            <Card>
++              <CardHeader><CardTitle>Fee Overviews & Welfare Escalation Control</CardTitle></CardHeader>
++              <CardContent className="space-y-2">
++                {roster.map((student) => (
++                  <div key={student.id} className="p-3 border rounded-xl flex items-center justify-between bg-background shadow-sm">
++                    <div>
++                      <span className="font-semibold text-sm text-slate-800">{student.first_name} {student.last_name}</span>
++                      <p className="text-xs text-muted-foreground">Outstanding Fee Invoice Balance: KES {student.current_balance?.toLocaleString() || '0'}</p>
++                    </div>
++                    <div className="flex items-center gap-2">
++                      {student.current_balance > 0 && <Badge variant="destructive" className="bg-red-100 text-red-800 text-xs">Arrears</Badge>}
++                      <Button
++                        size="sm"
++                        variant="outline"
++                        className="text-xs gap-1 text-amber-700 border-amber-600 hover:bg-amber-50"
++                        onClick={() => setEscalatingStudentId(student.id)}
++                      >
++                        <ShieldAlert className="w-3.5 h-3.5" /> Escalate Concern
++                      </Button>
++                    </div>
++                  </div>
++                ))}
++
++                {escalatingStudentId !== null && (
++                  <div className="mt-4 p-4 border rounded-xl bg-amber-50 border-amber-200 space-y-3">
++                    <h4 className="font-semibold text-sm text-slate-800">
++                      Escalate concern for {roster.find(s => s.id === escalatingStudentId)?.first_name}
++                    </h4>
++                    <input
++                      className="w-full text-xs p-2 border rounded-md"
++                      placeholder="Reason (e.g. Chronic Absenteeism, Behavioral Issue, Fee Balance)"
++                      value={escalationReason}
++                      onChange={(e) => setEscalationReason(e.target.value)}
++                    />
++                    <textarea
++                      className="w-full text-xs p-2 border rounded-md"
++                      placeholder="Additional details (optional)"
++                      rows={2}
++                      value={escalationDetails}
++                      onChange={(e) => setEscalationDetails(e.target.value)}
++                    />
++                    <div className="flex gap-2">
++                      <Button size="sm" onClick={submitEscalation} disabled={!escalationReason || submittingEscalation}>
++                        {submittingEscalation ? 'Sending...' : 'Send to Administration'}
++                      </Button>
++                      <Button size="sm" variant="ghost" onClick={() => setEscalatingStudentId(null)}>Cancel</Button>
++                    </div>
++                  </div>
++                )}
++              </CardContent>
++            </Card>
++          )}
++        </>
+       )}
+     </div>
+   );
+-}
+\ No newline at end of file

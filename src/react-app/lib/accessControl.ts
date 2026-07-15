@@ -23,7 +23,8 @@ export const routeRoles: { path: string; roles: Role[] }[] = [
   {path: '/dashboard/subjects', roles: ['admin', 'registrar', 'hod', 'super_admin'] },
   { path: '/dashboard/boarding', roles: ['admin', 'registrar', 'boarding_master'] },
   { path: '/dashboard/curriculum-assessment', roles: ['admin', 'teacher', 'exam_officer', 'hod', 'cbc_coordinator'] },
-  { path: '/dashboard/settings', roles: ['admin', 'super_admin'] }
+  { path: '/dashboard/settings', roles: ['admin', 'super_admin'] },
+  { path: '/dashboard/class-teacher', roles: ['class_teacher', 'admin'] }
 
 ];
 

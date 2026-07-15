@@ -1,8 +1,10 @@
 from sqlalchemy import Column, Integer, String, Float, DateTime, ForeignKey, Boolean, Text, Enum as SQLEnum, Table, UniqueConstraint, Index, Date, JSON, Time
 from sqlalchemy.orm import relationship, backref
+from sqlalchemy.ext.hybrid import hybrid_property
 from datetime import datetime, timedelta
 import enum
 from database import Base
+
 
 # ==================== ENUMS (Borrowed from SmartBiz) ====================
 
@@ -128,7 +130,10 @@ class Student(Base):
     first_name = Column(String(100), nullable=False)
     last_name = Column(String(100), nullable=False)
     grade = Column(String(20), nullable=False)
-    current_balance = Column(Float, default=0.0) # Borrowed from SmartBiz Customer logic
+    stream_section = Column(String(20), nullable=True) # Add this to align with streams
+    admission_number = Column(String(50), unique=True, nullable=True) # Add this
+    status = Column(String(20), default="active") # active, suspended, inactive
+    current_balance = Column(Float, default=0.0)
     
     created_at = Column(DateTime, default=datetime.utcnow)
 
@@ -561,7 +566,53 @@ class Course(Base):
     timetable_slots = relationship("TimetableSlot", back_populates="course", cascade="all, delete-orphan")
     exams = relationship("Exam", back_populates="course", cascade="all, delete-orphan")
     assignments = relationship("Assignment", back_populates="course", cascade="all, delete-orphan")
+    
+    @hybrid_property
+    def grade_level(self):
+        return self.grade
 
+    @grade_level.setter
+    def grade_level(self, value):
+        self.grade = value
+
+    @hybrid_property
+    def master_learning_area_id(self):
+        return self.learning_area_id
+
+    @master_learning_area_id.setter
+    def master_learning_area_id(self, value):
+        self.learning_area_id = value
+
+    @hybrid_property
+    def local_name(self):
+        return self.name
+
+    @local_name.setter
+    def local_name(self, value):
+        self.name = value
+
+SchoolCourse = Course
+
+# 2. Map StudentCourseEnrollment to database table course_enrollments
+class StudentCourseEnrollment(Base):
+    __tablename__ = "course_enrollments"
+
+    id = Column(Integer, primary_key=True, index=True)
+    course_id = Column(Integer, ForeignKey("courses.id", ondelete="CASCADE"), nullable=False)
+    student_id = Column(Integer, ForeignKey("students.id", ondelete="CASCADE"), nullable=False)
+    school_id = Column(Integer, ForeignKey("schools.id", ondelete="CASCADE"), nullable=True)
+    academic_year_id = Column(Integer, ForeignKey("academic_years.id", ondelete="SET NULL"), nullable=True)
+    term_id = Column(Integer, ForeignKey("terms.id", ondelete="SET NULL"), nullable=True)
+
+    @hybrid_property
+    def school_course_id(self):
+        return self.course_id
+
+    @school_course_id.setter
+    def school_course_id(self, value):
+        self.course_id = value
+        
+        
 class Assignment(Base):
     __tablename__ = "assignments"
 
