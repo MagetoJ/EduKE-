@@ -8,9 +8,10 @@ from fastapi.responses import JSONResponse
 from fastapi.middleware.cors import CORSMiddleware
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.exc import SQLAlchemyError
-from sqlalchemy import select, insert, update  # Added update here
+from sqlalchemy import select, insert, update, delete  # Added update here
 from datetime import timedelta
 from typing import Optional
+from models_roles import ClassTeacherAssignment  
 import logging
 import traceback
 import os
@@ -45,6 +46,8 @@ from notifications import router as notifications_router
 from transport_boarding import router as transport_router
 from curriculum import router as curriculum_router
 from class_teacher import router as class_teacher_router
+from sqlalchemy import delete
+from hod import router as hod_router
 
 # Setup logging
 logging.basicConfig(level=logging.INFO)
@@ -87,6 +90,7 @@ app.include_router(notifications_router, prefix="/api", dependencies=[Depends(ge
 app.include_router(courses_router, prefix="/api", dependencies=[Depends(get_current_user)])
 app.include_router(curriculum_router, dependencies=[Depends(get_current_user)])
 app.include_router(class_teacher_router, dependencies=[Depends(get_current_user)])
+app.include_router(hod_router, dependencies=[Depends(get_current_user)])
 
 # ==================== EXCEPTION HANDLERS ====================
 
@@ -176,6 +180,8 @@ class StaffUpdate(BaseModel):
     role: Optional[str] = None
     department: Optional[str] = None
     is_active: Optional[bool] = None
+    class_assigned: Optional[str] = None  # 🌟 Added field
+    subject: Optional[str] = None
 
 # ==================== AUTH ROUTES ====================
 
@@ -403,8 +409,9 @@ async def update_staff_member(
     db: AsyncSession = Depends(get_db),
     current_school: School = Depends(get_current_school)
 ):
-    """Updates an existing staff member's details"""
+    """Updates an existing staff member's details and synchronizes role assignments"""
     
+    # 1. Fetch user and membership details
     user_result = await db.execute(select(User).where(User.id == staff_id))
     user = user_result.scalar_one_or_none()
     
@@ -412,7 +419,7 @@ async def update_staff_member(
         raise HTTPException(status_code=404, detail="Staff member not found")
 
     membership_result = await db.execute(
-        select(school_users).where(
+        select(school_users.c.role).where(
             school_users.c.user_id == staff_id,
             school_users.c.school_id == current_school.id
         )
@@ -422,11 +429,15 @@ async def update_staff_member(
     if not membership:
         raise HTTPException(status_code=403, detail="Staff member does not belong to this school")
 
+    old_role = str(membership[0]).lower() if membership[0] else ""
+
+    # 2. Process personal profile updates
     if data.name is not None:
         user.full_name = data.name
     if data.email is not None:
         user.email = data.email
 
+    # 3. Process role and activity updates
     update_values = {}
     if data.role is not None:
         update_values["role"] = data.role 
@@ -441,8 +452,41 @@ async def update_staff_member(
             ).values(**update_values)
         )
 
+    # 4. Fixed Bug #3: Manage ClassTeacherAssignment rows
+    new_role = data.role.lower() if data.role else old_role
+
+    if new_role == "class_teacher":
+        if data.class_assigned:
+            # Parse something like "Grade 10 - Section A"
+            parts = data.class_assigned.split(" - Section ")
+            grade_level = parts[0] if len(parts) > 0 else "Grade 10"
+            stream_section = parts[1] if len(parts) > 1 else "A"
+
+            # Check if assignment already exists
+            existing_assign = await db.execute(
+                select(ClassTeacherAssignment).where(ClassTeacherAssignment.teacher_id == staff_id)
+            )
+            assignment = existing_assign.scalar_one_or_none()
+
+            if assignment:
+                assignment.grade_level = grade_level
+                assignment.stream_section = stream_section
+            else:
+                new_assignment = ClassTeacherAssignment(
+                    school_id=current_school.id,
+                    teacher_id=staff_id,
+                    grade_level=grade_level,
+                    stream_section=stream_section
+                )
+                db.add(new_assignment)
+    else:
+        # If their role was changed away from class teacher, purge old active assignment row
+        await db.execute(
+            delete(ClassTeacherAssignment).where(ClassTeacherAssignment.teacher_id == staff_id)
+        )
+
     await db.commit()
-    return {"success": True, "message": "Staff member updated successfully"}
+    return {"success": True, "message": "Staff member and assignments updated successfully"}
 
 # ==================== SYSTEM ROUTES ====================
 

@@ -308,69 +308,69 @@ export default function Staff() {
     setIsEditStaffDialogOpen(true)
   }
 
-  const handleEditStaffSubmit = async (e: FormEvent<HTMLFormElement>) => {
-    e.preventDefault()
-    if (!editingStaffId) {
-      return
-    }
-
-    try {
-      setError('')
-      const response = await api(`/api/staff/${editingStaffId}`, {
-        method: 'PUT',
-        body: JSON.stringify({
-          first_name: editStaffForm.name.split(' ')[0],
-          last_name: editStaffForm.name.split(' ').slice(1).join(' '),
-          email: editStaffForm.email,
-          phone: editStaffForm.phone,
-          department: editStaffForm.department,
-          class_assigned: editStaffForm.role === 'Teacher' ? editStaffForm.classAssigned : null,
-          subject: editStaffForm.role === 'Teacher' ? editStaffForm.subject : null,
-          status: editStaffForm.status.toLowerCase()
-        })
-      })
-
-      const data = await response.json()
-
-      if (!response.ok) {
-        throw new Error(data?.error || 'Failed to update staff member')
-      }
-
-      const updatedStaff = await api('/api/staff')
-      const updatedData = await updatedStaff.json()
-      
-      if (updatedStaff.ok) {
-        const staffArray = extractStaffArray(updatedData);
-        const mappedStaff: StaffMember[] = staffArray.map((member: Record<string, unknown>) => {
-          const rawRole = member.role as string || '';
-          const rawStatus = member.status as string || 'Active';
-          const formattedRole = rawRole
-            ? rawRole.split('_').map(word => word.charAt(0).toUpperCase() + word.slice(1)).join(' ')
-            : 'Staff';
-
-          return {
-            id: String(member.id),
-            name: String(member.name || `${member.first_name || ''} ${member.last_name || ''}`).trim(),
-            email: String(member.email || ''),
-            phone: String(member.phone || ''),
-            role: formattedRole,
-            department: String(member.department || 'General'),
-            hire_date: String(member.hire_date || new Date().toISOString()),
-            status: rawStatus.charAt(0).toUpperCase() + rawStatus.slice(1).toLowerCase(),
-            avatar_url: String(member.avatar_url || 'https://images.unsplash.com/photo-1506794778202-cad84cf45f1d?w=150&h=150&fit=crop&crop=face'),
-            class_assigned: member.class_assigned ? String(member.class_assigned) : undefined,
-            subject: member.subject ? String(member.subject) : undefined
-          }
-        })
-        setStaff(mappedStaff)
-      }
-
-      setIsEditStaffDialogOpen(false)
-      setEditingStaffId(null)
-    } catch (err) {
-      setError(err instanceof Error ? err.message : 'An unexpected error occurred.')
-    }
+ const handleEditStaffSubmit = async (e: FormEvent<HTMLFormElement>) => {
+  e.preventDefault()
+  if (!editingStaffId) {
+    return
   }
+
+  try {
+    setError('')
+    const response = await api(`/api/staff/${editingStaffId}`, {
+      method: 'PUT',
+      body: JSON.stringify({
+        name: editStaffForm.name, // Matches the backend data.name expectation
+        email: editStaffForm.email,
+        phone: editStaffForm.phone,
+        department: editStaffForm.department,
+        role: editStaffForm.role.toLowerCase(), // Fixed Bug #1 & #2: Pass lowercase role
+        class_assigned: ['teacher', 'class_teacher'].includes(editStaffForm.role.toLowerCase()) ? editStaffForm.classAssigned : null,
+        subject: ['teacher', 'class_teacher'].includes(editStaffForm.role.toLowerCase()) ? editStaffForm.subject : null,
+        is_active: editStaffForm.status.toLowerCase() === 'active'
+      })
+    })
+
+    const data = await response.json()
+
+    if (!response.ok) {
+      throw new Error(data?.detail || data?.error || 'Failed to update staff member')
+    }
+
+    const updatedStaff = await api('/api/staff')
+    const updatedData = await updatedStaff.json()
+    
+    if (updatedStaff.ok) {
+      const staffArray = extractStaffArray(updatedData);
+      const mappedStaff: StaffMember[] = staffArray.map((member: Record<string, unknown>) => {
+        const rawRole = member.role as string || '';
+        const rawStatus = member.status as string || 'Active';
+        const formattedRole = rawRole
+          ? rawRole.split('_').map(word => word.charAt(0).toUpperCase() + word.slice(1)).join(' ')
+          : 'Staff';
+
+        return {
+          id: String(member.id),
+          name: String(member.name || `${member.first_name || ''} ${member.last_name || ''}`).trim(),
+          email: String(member.email || ''),
+          phone: String(member.phone || ''),
+          role: formattedRole,
+          department: String(member.department || 'General'),
+          hire_date: String(member.hire_date || new Date().toISOString()),
+          status: rawStatus.charAt(0).toUpperCase() + rawStatus.slice(1).toLowerCase(),
+          avatar_url: String(member.avatar_url || 'https://images.unsplash.com/photo-1506794778202-cad84cf45f1d?w=150&h=150&fit=crop&crop=face'),
+          class_assigned: member.class_assigned ? String(member.class_assigned) : undefined,
+          subject: member.subject ? String(member.subject) : undefined
+        }
+      })
+      setStaff(mappedStaff)
+    }
+
+    setIsEditStaffDialogOpen(false)
+    setEditingStaffId(null)
+  } catch (err) {
+    setError(err instanceof Error ? err.message : 'An unexpected error occurred.')
+  }
+}
 
   const handleDeactivateStaff = async (staffId: string) => {
     try {
@@ -451,30 +451,30 @@ export default function Staff() {
 
                 <div className="grid grid-cols-2 gap-4">
                   <div className="space-y-2">
-                    <Label htmlFor="role">Role</Label>
-                    <Select value={formData.role || undefined} onValueChange={(value) => handleSelectChange('role', value)}>
-                      <SelectTrigger id="role">
-                        <SelectValue placeholder="Select role" />
-                      </SelectTrigger>
-                      <SelectContent>
-                        <SelectItem value="teacher">Teacher</SelectItem>
-                        <SelectItem value="class_teacher">Class Teacher</SelectItem>
-                        <SelectItem value="registrar">Registrar</SelectItem>
-                        <SelectItem value="exam_officer">Exam Officer</SelectItem>
-                        <SelectItem value="hod">Head of Department (HOD)</SelectItem>
-                        <SelectItem value="timetable_manager">Timetable Manager</SelectItem>
-                        <SelectItem value="transport_manager">Transport Manager</SelectItem>
-                        <SelectItem value="boarding_master">Boarding Master</SelectItem>
-                        <SelectItem value="cbc_coordinator">CBC Coordinator</SelectItem>
-                        <SelectItem value="hr_manager">HR Manager</SelectItem>
-                        <SelectItem value="admission_officer">Admission Officer</SelectItem>
-                        <SelectItem value="nurse">Nurse</SelectItem>
-                        <SelectItem value="administrator">Administrator</SelectItem>
-                        <SelectItem value="counselor">Counselor</SelectItem>
-                        <SelectItem value="librarian">Librarian</SelectItem>
-                      </SelectContent>
-                    </Select>
-                  </div>
+  <Label htmlFor="role">Role</Label>
+  <Select value={editStaffForm.role.toLowerCase()} onValueChange={(value) => handleEditStaffSelectChange('role', value)}>
+    <SelectTrigger id="role">
+      <SelectValue placeholder="Select role" />
+    </SelectTrigger>
+    <SelectContent>
+      <SelectItem value="teacher">Teacher</SelectItem>
+      <SelectItem value="class_teacher">Class Teacher</SelectItem>
+      <SelectItem value="registrar">Registrar</SelectItem>
+      <SelectItem value="exam_officer">Exam Officer</SelectItem>
+      <SelectItem value="hod">HOD</SelectItem>
+      <SelectItem value="timetable_manager">Timetable Manager</SelectItem>
+      <SelectItem value="transport_manager">Transport Manager</SelectItem>
+      <SelectItem value="boarding_master">Boarding Master</SelectItem>
+      <SelectItem value="cbc_coordinator">CBC Coordinator</SelectItem>
+      <SelectItem value="hr_manager">HR Manager</SelectItem>
+      <SelectItem value="admission_officer">Admission Officer</SelectItem>
+      <SelectItem value="nurse">Nurse</SelectItem>
+      <SelectItem value="administrator">Administrator</SelectItem>
+      <SelectItem value="counselor">Counselor</SelectItem>
+      <SelectItem value="librarian">Librarian</SelectItem>
+    </SelectContent>
+  </Select>
+</div>
                   <div className="space-y-2">
                     <Label htmlFor="department">Department</Label>
                     <Select value={formData.department || undefined} onValueChange={(value) => handleSelectChange('department', value)}>

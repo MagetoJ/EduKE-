@@ -57,7 +57,7 @@ async def get_managed_stream_details(
         select(Student).filter(
             Student.school_id == assignment.school_id,
             Student.grade == assignment.grade_level,
-            Student.class_section == assignment.stream_section,
+            Student.stream_section == assignment.stream_section,
             Student.status == "active"
         )
     )

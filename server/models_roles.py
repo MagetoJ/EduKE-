@@ -15,7 +15,23 @@ class AcademicDepartment(Base):
     # Relationships
     hod = relationship("User", foreign_keys=[hod_id])
 
+    courses = relationship("Course", back_populates="department")
+    members = relationship("DepartmentMembership", back_populates="department", cascade="all, delete-orphan")
+class DepartmentMembership(Base):
+    __tablename__ = "department_memberships"
 
+    id = Column(Integer, primary_key=True, index=True)
+    school_id = Column(Integer, ForeignKey("schools.id", ondelete="CASCADE"), nullable=False)
+    department_id = Column(Integer, ForeignKey("academic_departments.id", ondelete="CASCADE"), nullable=False)
+    teacher_id = Column(Integer, ForeignKey("users.id", ondelete="CASCADE"), nullable=False)
+    assigned_at = Column(DateTime, default=datetime.utcnow)
+
+    # Database level constraints
+    __table_args__ = (UniqueConstraint("department_id", "teacher_id", name="uq_dept_membership"),)
+
+    # Relationships
+    department = relationship("AcademicDepartment", back_populates="members")
+    teacher = relationship("User")
 class ClassTeacherAssignment(Base):
     __tablename__ = "class_teacher_assignments"
 
@@ -40,4 +56,6 @@ class CbcCoordinatorAssignment(Base):
     assigned_at = Column(DateTime, default=datetime.utcnow)
 
     coordinator = relationship("User", foreign_keys=[coordinator_id])
-    grade_band = relationship("CbcGradeBand")
+    
+    #  FIX: Change "CbcGradeBand" to "GradeBand" to match the actual class definition in models.py
+    grade_band = relationship("GradeBand")

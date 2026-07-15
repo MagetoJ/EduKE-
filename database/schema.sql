@@ -1628,3 +1628,14 @@ CREATE TABLE IF NOT EXISTS cbc_coordinator_assignments (
     assigned_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
     UNIQUE(school_id, coordinator_id, grade_band_id)
 );
+
+ALTER TABLE students
+  ADD COLUMN IF NOT EXISTS stream_section VARCHAR(20),
+  ADD COLUMN IF NOT EXISTS admission_number VARCHAR(50),
+  ADD COLUMN IF NOT EXISTS status VARCHAR(20) DEFAULT 'active';
+
+-- admission_number is declared unique=True in the model, so Postgres needs a
+-- matching constraint too (create_all would have added this on a fresh table,
+-- but ALTER TABLE ADD COLUMN doesn't add constraints automatically):
+ALTER TABLE students
+  ADD CONSTRAINT students_admission_number_key UNIQUE (admission_number);

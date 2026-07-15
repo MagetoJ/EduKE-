@@ -547,6 +547,8 @@ class Course(Base):
     teacher_id = Column(Integer, ForeignKey("users.id", ondelete="SET NULL"))
     academic_year_id = Column(Integer, ForeignKey("academic_years.id", ondelete="SET NULL"))
     
+    department_id = Column(Integer, ForeignKey("academic_departments.id", ondelete="SET NULL"), nullable=True)
+    
     name = Column(String(255), nullable=False)
     code = Column(String(50))
     description = Column(Text)
@@ -554,6 +556,7 @@ class Course(Base):
     
     is_active = Column(Boolean, default=True)
 
+    department = relationship("AcademicDepartment", back_populates="courses")
     # --- CBC STRATEGIES ---
     learning_area_id = Column(Integer, ForeignKey("master_learning_areas.id", ondelete="RESTRICT"), nullable=True)
     grade_band_id = Column(Integer, ForeignKey("cbc_grade_bands.id", ondelete="RESTRICT"), nullable=True)
