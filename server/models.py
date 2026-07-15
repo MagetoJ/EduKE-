@@ -549,9 +549,18 @@ class Course(Base):
     
     is_active = Column(Boolean, default=True)
 
-    # Relationships
-    timetable_slots = relationship("TimetableSlot", back_populates="course")
-    exams = relationship("Exam", back_populates="course")
+    # --- CBC STRATEGIES ---
+    learning_area_id = Column(Integer, ForeignKey("master_learning_areas.id", ondelete="RESTRICT"), nullable=True)
+    grade_band_id = Column(Integer, ForeignKey("cbc_grade_bands.id", ondelete="RESTRICT"), nullable=True)
+
+    # FIX: Change target string "CbcGradeBand" to "GradeBand" to match your actual Python class name
+    learning_area = relationship("LearningArea", back_populates="courses")
+    grade_band = relationship("GradeBand", back_populates="courses")
+
+    # --- CORE ACADEMIC RELATIONSHIPS ---
+    timetable_slots = relationship("TimetableSlot", back_populates="course", cascade="all, delete-orphan")
+    exams = relationship("Exam", back_populates="course", cascade="all, delete-orphan")
+    assignments = relationship("Assignment", back_populates="course", cascade="all, delete-orphan")
 
 class Assignment(Base):
     __tablename__ = "assignments"
@@ -560,27 +569,10 @@ class Assignment(Base):
     school_id = Column(Integer, ForeignKey("schools.id", ondelete="CASCADE"), nullable=False)
     course_id = Column(Integer, ForeignKey("courses.id", ondelete="CASCADE"), nullable=False)
     teacher_id = Column(Integer, ForeignKey("users.id", ondelete="CASCADE"), nullable=False)
-    academic_year_id = Column(Integer, ForeignKey("academic_years.id", ondelete="SET NULL"))
-    term_id = Column(Integer, ForeignKey("terms.id", ondelete="SET NULL"))
-    
-    title = Column(String(255), nullable=False)
-    description = Column(Text)
-    instructions = Column(Text)
-    
-    assignment_type = Column(String(20), default="homework")
-    total_marks = Column(Integer, default=100)
-    weightage = Column(Float)
-    
-    assigned_date = Column(DateTime, default=datetime.utcnow)
-    due_date = Column(DateTime, nullable=False)
-    late_submission_allowed = Column(Boolean, default=True)
-    late_penalty_percent = Column(Float, default=10.00)
-    
-    attachment_url = Column(Text)
-    status = Column(String(20), default="published")
-    
-    created_at = Column(DateTime, default=datetime.utcnow)
-    updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+    # ... rest of your assignment column fields ...
+
+    # --- ADD/RESTORE THIS RELATIONSHIP FOR REVERSE MAPPER COMPLIANCE ---
+    course = relationship("Course", back_populates="assignments")
 
     school = relationship("School")
     teacher = relationship("User")
@@ -614,7 +606,98 @@ class AssignmentSubmission(Base):
     grader = relationship("User", foreign_keys=[graded_by])
 
 # ==================== DISCIPLINE ====================
+# Add to server/models.py
 
+class GradeBand(Base):
+    __tablename__ = "cbc_grade_bands"
+    # ... fields ...
+    courses = relationship("Course", back_populates="grade_band")
+
+    id = Column(Integer, primary_key=True, index=True)
+    name = Column(String(100), nullable=False, unique=True) # e.g., 'Junior School (Grade 7-9)'
+    code = Column(String(20), nullable=False, unique=True)  # e.g., 'JSS'
+    created_at = Column(DateTime, default=datetime.utcnow)
+
+    learning_areas = relationship("LearningArea", back_populates="grade_band")
+    courses = relationship("Course", back_populates="grade_band")
+
+
+class Pathway(Base):
+    """STEM, Social Sciences, Arts & Sports Science (Grade 10+ only)"""
+    __tablename__ = "cbc_pathways"
+
+    id = Column(Integer, primary_key=True, index=True)
+    name = Column(String(100), nullable=False, unique=True) # e.g., 'STEM Pathway'
+    code = Column(String(20), nullable=False, unique=True)  # e.g., 'PATH_STEM'
+    description = Column(Text)
+    created_at = Column(DateTime, default=datetime.utcnow)
+
+    requirements = relationship("CourseRequirement", back_populates="pathway")
+
+
+class LearningArea(Base):
+    """The KICD CBC-aligned subject catalog definition"""
+    __tablename__ = "master_learning_areas"
+
+    id = Column(Integer, primary_key=True, index=True)
+    grade_band_id = Column(Integer, ForeignKey("cbc_grade_bands.id", ondelete="RESTRICT"), nullable=False)
+    name = Column(String(255), nullable=False)
+    code = Column(String(50), nullable=False, unique=True)  # e.g., 'KICD-JSS-INTSCI'
+    description = Column(Text)
+    curriculum_year = Column(Integer, default=2024)
+    created_at = Column(DateTime, default=datetime.utcnow)
+
+    # FIX: Change target string "CbcGradeBand" to "GradeBand" to match the exact class definition
+    grade_band = relationship("GradeBand", back_populates="learning_areas")
+    
+    strands = relationship("Strand", back_populates="learning_area", cascade="all, delete-orphan")
+    courses = relationship("Course", back_populates="learning_area")
+    requirements = relationship("CourseRequirement", back_populates="learning_area")
+
+
+class Strand(Base):
+    """Syllabus subdivision of a Learning Area (Main Strand)"""
+    __tablename__ = "master_curriculum_strands"
+
+    id = Column(Integer, primary_key=True, index=True)
+    learning_area_id = Column(Integer, ForeignKey("master_learning_areas.id", ondelete="CASCADE"), nullable=False)
+    name = Column(String(255), nullable=False) # e.g., 'Matter'
+    code = Column(String(50), nullable=False, unique=True) # e.g., 'JSS-SCI-STR1'
+    created_at = Column(DateTime, default=datetime.utcnow)
+
+    learning_area = relationship("LearningArea", back_populates="strands")
+    sub_strands = relationship("SubStrand", back_populates="strand", cascade="all, delete-orphan")
+
+
+class SubStrand(Base):
+    """Syllabus subdivision of a Strand containing explicit competencies"""
+    __tablename__ = "master_curriculum_sub_strands"
+
+    id = Column(Integer, primary_key=True, index=True)
+    strand_id = Column(Integer, ForeignKey("master_curriculum_strands.id", ondelete="CASCADE"), nullable=False)
+    name = Column(String(255), nullable=False) # e.g., 'Separating Mixtures'
+    code = Column(String(50), nullable=False, unique=True) # e.g., 'JSS-SCI-STR1-SUB1'
+    specific_learning_outcome = Column(Text)
+    created_at = Column(DateTime, default=datetime.utcnow)
+
+    strand = relationship("Strand", back_populates="sub_strands")
+
+
+class CourseRequirement(Base):
+    """Rule engine parameters enforcing compulsory vs pool elective courses"""
+    __tablename__ = "cbc_course_requirements"
+
+    id = Column(Integer, primary_key=True, index=True)
+    grade_band_id = Column(Integer, ForeignKey("cbc_grade_bands.id", ondelete="CASCADE"), nullable=False)
+    pathway_id = Column(Integer, ForeignKey("cbc_pathways.id", ondelete="CASCADE"), nullable=True) # Null for Primary/JSS
+    learning_area_id = Column(Integer, ForeignKey("master_learning_areas.id", ondelete="CASCADE"), nullable=False)
+    requirement_type = Column(String(30), nullable=False) # 'compulsory' | 'elective_pool' | 'optional'
+    pool_group_name = Column(String(100), nullable=True) # e.g., 'Sciences Pool'
+    min_required_from_pool = Column(Integer, default=0)
+    created_at = Column(DateTime, default=datetime.utcnow)
+
+    pathway = relationship("Pathway", back_populates="requirements")
+    learning_area = relationship("LearningArea", back_populates="requirements")
 class DisciplineRecord(Base):
     """Student disciplinary incidents reported by teachers"""
     __tablename__ = "discipline_records"

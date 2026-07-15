@@ -43,6 +43,8 @@ from dashboard import router as dashboard_router
 from leave_requests import router as leave_router
 from notifications import router as notifications_router
 from transport_boarding import router as transport_router
+from curriculum import router as curriculum_router
+from class_teacher import router as class_teacher_router
 
 # Setup logging
 logging.basicConfig(level=logging.INFO)
@@ -83,7 +85,8 @@ app.include_router(library_router, dependencies=[Depends(get_current_user)])
 app.include_router(leave_router, prefix="/api", dependencies=[Depends(get_current_user)])
 app.include_router(notifications_router, prefix="/api", dependencies=[Depends(get_current_user)])
 app.include_router(courses_router, prefix="/api", dependencies=[Depends(get_current_user)])
-
+app.include_router(curriculum_router, dependencies=[Depends(get_current_user)])
+app.include_router(class_teacher_router, dependencies=[Depends(get_current_user)])
 
 # ==================== EXCEPTION HANDLERS ====================
 

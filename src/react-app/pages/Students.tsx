@@ -76,6 +76,69 @@ const EMPTY_FORM: StudentFormData = {
   relationship: 'guardian'
 }
 
+// --- NEW COMPONENT DEFINED AT TOP LEVEL OUTSIDE OF THE MAIN DEFAULT FUNCTION ---
+interface PathwayProps {
+  studentId: string;
+  onSuccess: () => void;
+}
+
+export const SeniorSchoolPathwayModal: React.FC<PathwayProps> = ({ studentId, onSuccess }) => {
+  const [selectedPathway, setSelectedPathway] = useState("");
+  const [errorMsg, setErrorMsg] = useState("");
+  const api = useApi();
+
+  const handleTransitionSubmit = async () => {
+    setErrorMsg("");
+    try {
+      const response = await api(`/api/students/${studentId}/pathway-transition`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          pathway_id: parseInt(selectedPathway),
+          elective_course_ids: [] 
+        })
+      });
+      
+      const data = await response.json();
+      if (!response.ok) {
+        setErrorMsg(data.detail || "Rule Engine validation mismatch error.");
+      } else {
+        onSuccess();
+      }
+    } catch (err) {
+      setErrorMsg("Network connection error encountered.");
+    }
+  };
+
+  return (
+    <div className="p-4 border rounded-xl bg-card space-y-4">
+      <h3 className="font-bold text-lg text-foreground">Grade 9 ➔ Grade 10 Pathway Assignment</h3>
+      
+      <div>
+        <label className="block text-sm font-medium mb-1">Select KICD Senior Pathway</label>
+        <select 
+          className="w-full p-2 border rounded bg-background"
+          value={selectedPathway}
+          onChange={(e) => setSelectedPathway(e.target.value)}
+        >
+          <option value="">-- Choose Track --</option>
+          <option value="1">STEM Pathway (Pure/Applied Sciences, Engineering)</option>
+          <option value="2">Social Sciences Pathway (Humanities/Business)</option>
+          <option value="3">Arts & Sports Science Pathway</option>
+        </select>
+      </div>
+
+      {errorMsg && <p className="text-sm text-destructive font-medium bg-destructive/10 p-2 rounded">{errorMsg}</p>}
+
+      <Button onClick={handleTransitionSubmit} disabled={!selectedPathway} className="w-full">
+        Confirm Auto-Enrollment & Transit
+      </Button>
+    </div>
+  );
+};
+
+
+// ==================== MAIN COMPONENT ====================
 export default function Students() {
   const api = useApi()
   const navigate = useNavigate()
@@ -95,21 +158,25 @@ export default function Students() {
   const [isSubmitting, setIsSubmitting] = useState(false)
   const [formError, setFormError] = useState<string | null>(null)
 
-  useEffect(() => {
-    const fetchStudents = async () => {
-      setIsLoading(true)
-      setError(null)
-      try {
-        const res = await api('/api/students')
-        if (!res.ok) throw new Error('Failed to fetch students')
-        const data = await res.json()
-        setStudents(data.data || [])
-      } catch (err) {
-        setError(err instanceof Error ? err.message : 'Error fetching data')
-      } finally {
-        setIsLoading(false)
-      }
+  // Track state for showing pathway transition view
+  const [activePathwayStudentId, setActivePathwayStudentId] = useState<string | null>(null)
+
+  const fetchStudents = async () => {
+    setIsLoading(true)
+    setError(null)
+    try {
+      const res = await api('/api/students')
+      if (!res.ok) throw new Error('Failed to fetch students')
+      const data = await res.json()
+      setStudents(data.data || [])
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Error fetching data')
+    } finally {
+      setIsLoading(false)
     }
+  }
+
+  useEffect(() => {
     fetchStudents()
   }, [api])
 
@@ -122,7 +189,7 @@ export default function Students() {
     setIsEnrollDialogOpen(open)
   }
 
-const handleSubmit = async (e: FormEvent) => {
+  const handleSubmit = async (e: FormEvent) => {
     e.preventDefault()
     setIsSubmitting(true)
     setFormError(null)
@@ -135,7 +202,6 @@ const handleSubmit = async (e: FormEvent) => {
       const data = await response.json()
       
       if (!response.ok) {
-        // Fallback context in case error strings live inside data.detail or data.errors
         throw new Error(data.detail || data.error || data.errors || 'Failed to enroll student');
       }
       
@@ -183,12 +249,8 @@ const handleSubmit = async (e: FormEvent) => {
   }
 
   const filteredStudents = (Array.isArray(students) ? students : []).filter(student => {
-    // Skip if the student object is undefined or null
     if (!student) return false;
-    
     const searchLower = (searchQuery || '').toLowerCase();
-    
-    // Safely fallback to empty strings if any field is null/undefined
     return (
       (student.first_name || '').toLowerCase().includes(searchLower) ||
       (student.last_name || '').toLowerCase().includes(searchLower) ||
@@ -208,10 +270,27 @@ const handleSubmit = async (e: FormEvent) => {
 
   return (
     <div className="space-y-6">
-      <div>
-        <h1 className="text-3xl font-bold text-slate-900">Students</h1>
-        <p className="text-slate-600">Manage student enrollment and records</p>
+      <div className="flex justify-between items-center">
+        <div>
+          <h1 className="text-3xl font-bold text-slate-900">Students</h1>
+          <p className="text-slate-600">Manage student enrollment and records</p>
+        </div>
       </div>
+
+      {/* Pathway Transition Modal Backdrop Trigger */}
+      {activePathwayStudentId && (
+        <Dialog open={!!activePathwayStudentId} onOpenChange={(open) => !open && setActivePathwayStudentId(null)}>
+          <DialogContent>
+            <SeniorSchoolPathwayModal 
+              studentId={activePathwayStudentId} 
+              onSuccess={() => {
+                setActivePathwayStudentId(null);
+                fetchStudents();
+              }}
+            />
+          </DialogContent>
+        </Dialog>
+      )}
 
       <div className="bg-white rounded-lg shadow-sm border border-slate-200 p-4">
         <div className="flex items-center justify-between gap-4">
@@ -444,6 +523,12 @@ const handleSubmit = async (e: FormEvent) => {
                             <Edit className="w-4 h-4 mr-2" />
                             Edit
                           </DropdownMenuItem>
+                          {/* Exposed dropdown item activation route to assign CBC Senior Pathway tracks */}
+                          {student.grade === 'Grade 9' && (
+                            <DropdownMenuItem onClick={() => setActivePathwayStudentId(student.id)}>
+                              Assign Senior Pathway
+                            </DropdownMenuItem>
+                          )}
                           {student.status !== 'inactive' && (
                             <DropdownMenuItem 
                               className="text-red-600"

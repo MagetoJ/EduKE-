@@ -1594,3 +1594,37 @@ ALTER TABLE schools DROP COLUMN curriculum; -- Drop the old user manual curricul
 
 ALTER TABLE schools ADD COLUMN is_special_needs BOOLEAN DEFAULT FALSE;
 ALTER TABLE schools ADD COLUMN disability_category TEXT; -- 'hearing_impaired', 'visual_impaired', 'physical_mobility', 'none'
+
+
+-- 1. Create Academic Departments to support HOD assignments
+CREATE TABLE IF NOT EXISTS academic_departments (
+    id SERIAL PRIMARY KEY,
+    school_id INT NOT NULL REFERENCES schools(id) ON DELETE CASCADE,
+    name VARCHAR(100) NOT NULL, -- e.g., 'Science and Mathematics', 'Languages'
+    code VARCHAR(20) NOT NULL,  -- e.g., 'DEPT-SCI'
+    hod_id INT REFERENCES users(id) ON DELETE SET NULL, -- Links to the HOD's User ID
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    UNIQUE(school_id, code)
+);
+
+-- 2. Create class teacher assignments (One Class Teacher per Grade Stream)
+CREATE TABLE IF NOT EXISTS class_teacher_assignments (
+    id SERIAL PRIMARY KEY,
+    school_id INT NOT NULL REFERENCES schools(id) ON DELETE CASCADE,
+    teacher_id INT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+    grade_level VARCHAR(50) NOT NULL,  -- e.g., 'Grade 7'
+    stream_section VARCHAR(20) NOT NULL, -- e.g., 'East'
+    academic_year_id INT REFERENCES academic_years(id) ON DELETE SET NULL,
+    assigned_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    UNIQUE(school_id, grade_level, stream_section, academic_year_id) -- Enforces 1 teacher per class stream
+);
+
+-- 3. Create CBC Coordinator assignments (Tracks which coordinator handles which grade bands)
+CREATE TABLE IF NOT EXISTS cbc_coordinator_assignments (
+    id SERIAL PRIMARY KEY,
+    school_id INT NOT NULL REFERENCES schools(id) ON DELETE CASCADE,
+    coordinator_id INT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+    grade_band_id INT NOT NULL REFERENCES cbc_grade_bands(id) ON DELETE CASCADE,
+    assigned_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    UNIQUE(school_id, coordinator_id, grade_band_id)
+);

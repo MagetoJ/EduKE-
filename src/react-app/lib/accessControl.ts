@@ -35,3 +35,17 @@ export function routeAllowsRole(pathname: string, roles: string[]): boolean {
   if (candidates.length === 0) return true;
   return candidates[0].roles.some(allowed => roles.includes(allowed));
 }
+
+// Append permissions configuration rules inside src/react-app/lib/accessControl.ts
+
+export const CURRICULUM_PERMISSIONS = {
+  MANAGE_MASTER_TAXONOMY: ['super_admin'],
+  MANAGE_SCHOOL_OFFERINGS: ['admin', 'hod', 'registrar'],
+  RECORD_COMPETENCY_GRADES: ['teacher', 'class_teacher', 'cbc_coordinator'],
+  VIEW_CBC_SLIPS: ['admin', 'teacher', 'parent', 'student']
+};
+
+export function hasCurriculumAccess(userRole: string, action: keyof typeof CURRICULUM_PERMISSIONS): boolean {
+  const allowedRoles = CURRICULUM_PERMISSIONS[action];
+  return allowedRoles ? allowedRoles.includes(userRole) : false;
+}
