@@ -4,7 +4,7 @@ from sqlalchemy.ext.hybrid import hybrid_property
 from datetime import datetime, timedelta
 import enum
 from database import Base
-
+from models_class_teacher import ClassProgressReport, ProgressReportComment
 
 # ==================== ENUMS (Borrowed from SmartBiz) ====================
 
@@ -573,6 +573,7 @@ class Course(Base):
     exams = relationship("Exam", back_populates="course", cascade="all, delete-orphan")
     assignments = relationship("Assignment", back_populates="course", cascade="all, delete-orphan")
     
+    progress_reports = relationship("ClassProgressReport", back_populates="course", cascade="all, delete-orphan")
     @hybrid_property
     def grade_level(self):
         return self.grade
@@ -665,6 +666,13 @@ class AssignmentSubmission(Base):
 # ==================== DISCIPLINE ====================
 # Add to server/models.py
 
+
+
+
+
+# --- Register relationships on Course model in models.py ---
+# Ensure Course has relationship back-populates defined:
+# Course.progress_reports = relationship("ClassProgressReport", back_populates="course", cascade="all, delete-orphan")
 class GradeBand(Base):
     __tablename__ = "cbc_grade_bands"
     # ... fields ...

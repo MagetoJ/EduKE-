@@ -178,12 +178,7 @@ const navItems: NavItem[] = [
     icon: BookOpen,
     roles: ['admin', 'registrar', 'hod']
   },
-  {
-    title: 'HOD Command Center',
-    href: '/dashboard/hod',
-    icon: ClipboardList,
-    roles: ['hod', 'admin']
-  },
+
 ]
 
 interface SidebarProps {

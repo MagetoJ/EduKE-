@@ -73,6 +73,13 @@ export default function Dashboard() {
   const [error, setError] = useState<string | null>(null)
 
   useEffect(() => {
+    // Redirect HODs instantly to their dedicated portal space
+    if (user?.role === 'hod') {
+      navigate('/dashboard/hod')
+    }
+  }, [user, navigate])
+  
+  useEffect(() => {
     const loadData = async () => {
       if (!user) {
         return

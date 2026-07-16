@@ -33,8 +33,6 @@ import TeacherDashboard from "./pages/TeacherDashboard";
 import ClassTeacherDashboard from './pages/ClassTeacherDashboard';
 import Subscriptions from "./pages/Subscriptions";
 import CBC from "./pages/CBC";
-// import NEMIS from "./pages/NEMIS";
-// import KNEC from "./pages/KNEC";
 import Transport from "./pages/Transport";
 import Boarding from "./pages/Boarding";
 import CurriculumAssessment from "./pages/CurriculumAssessment";
@@ -44,7 +42,14 @@ import { useLocation } from "react-router";
 import Subjects from "./pages/Courses";
 import { routeAllowsRole } from "./lib/accessControl";
 import HodDashboard from './pages/HodDashboard';
-function ProtectedRoute({ children }: { children: React.ReactNode }) {
+
+// Explicit props typing to eliminate the compilation assignment error
+interface ProtectedRouteProps {
+  children: React.ReactNode;
+  allowedRoles?: string[];
+}
+
+function ProtectedRoute({ children, allowedRoles }: ProtectedRouteProps) {
   const { user, isLoading } = useAuth();
   
   if (isLoading) {
@@ -56,16 +61,22 @@ function ProtectedRoute({ children }: { children: React.ReactNode }) {
   }
   
   if (!user) {
-    return <Navigate to="/login" />;
+    return <Navigate to="/login" replace />;
+  }
+
+  // Fallback structural safety: If an array of allowed roles is passed and user doesn't match, bounce back safely
+  if (allowedRoles && !allowedRoles.includes(user.role)) {
+    return <Navigate to="/dashboard" replace />;
   }
   
   return <>{children}</>;
 }
+
 function RoleRoute({ children }: { children: React.ReactNode }) {
   const { user } = useAuth();
   const location = useLocation();
 
-  if (!user) return <Navigate to="/login" />;
+  if (!user) return <Navigate to="/login" replace />;
 
   const effectiveRoles = user.roles && user.roles.length > 0 ? user.roles : [user.role];
   if (!routeAllowsRole(location.pathname, effectiveRoles)) {
@@ -74,6 +85,7 @@ function RoleRoute({ children }: { children: React.ReactNode }) {
 
   return <>{children}</>;
 }
+
 function AppRoutes() {
   const { user } = useAuth();
   
@@ -103,8 +115,9 @@ function AppRoutes() {
   return (
     <Routes>
       <Route path="/change-password" element={<ForcePasswordChange />} />
-      <Route path="/login" element={<Navigate to="/dashboard" />} />
-      <Route path="/" element={<Navigate to="/dashboard" />} />
+      <Route path="/login" element={<Navigate to="/dashboard" replace />} />
+      <Route path="/" element={<Navigate to="/dashboard" replace />} />
+      
       <Route
         path="/dashboard"
         element={
@@ -113,7 +126,20 @@ function AppRoutes() {
           </ProtectedRoute>
         }
       >
+        {/* Main Dashboard Fallback Landing Component */}
         <Route index element={<Dashboard />} />
+        
+        {/* Core HOD App Route Setup */}
+        <Route 
+          path="hod" 
+          element={
+            <ProtectedRoute allowedRoles={['hod']}>
+              <HodDashboard />
+            </ProtectedRoute>
+          } 
+        />
+        
+        {/* Remaining Core Functional Architecture Sub-Routes */}
         <Route path="timetable-manager" element={<TimetableManagerDashboard />} />
         <Route path="subjects" element={<RoleRoute><Subjects /></RoleRoute>} />
         <Route path="students" element={<Students />} />
@@ -138,18 +164,15 @@ function AppRoutes() {
         <Route path="parent" element={<ParentDashboard />} />
         <Route path="student-dashboard" element={<StudentDashboard />} />
         <Route path="teacher-dashboard" element={<TeacherDashboard />} />
-        <Route path="/dashboard/class-teacher" element={<ClassTeacherDashboard />} />
-        <Route path="/dashboard" element={<DashboardLayout />}></Route>
-        <Route path="hod" element={<RoleRoute><HodDashboard /></RoleRoute>} />
+        <Route path="class-teacher" element={<ClassTeacherDashboard />} />
         <Route path="cbc" element={<CBC />} />
-        {/* <Route path="nemis" element={<NEMIS />} />
-        <Route path="knec" element={<KNEC />} /> */}
         <Route path="transport" element={<Transport />} />
         <Route path="boarding" element={<Boarding />} />
         <Route path="curriculum-assessment" element={<CurriculumAssessment />} />
         <Route path="platform-admin" element={<SuperAdminDashboard />} />
       </Route>
-      <Route path="*" element={<Navigate to="/dashboard" />} />
+      
+      <Route path="*" element={<Navigate to="/dashboard" replace />} />
     </Routes>
   );
 }

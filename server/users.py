@@ -6,8 +6,8 @@ from pydantic import BaseModel, EmailStr, model_validator
 
 from database import get_db
 from models import User, School, school_users, UserRole
-from auth import get_current_school, get_password_hash
-from models_roles import ClassTeacherAssignment
+from auth import get_current_school, get_current_user, get_password_hash
+from models_roles import ClassTeacherAssignment, AcademicDepartment
 
 router = APIRouter(prefix="/users", tags=["User Management"])
 
@@ -153,6 +153,72 @@ async def create_school_user(
     await db.commit()
     await db.refresh(new_user)
     return new_user
+
+class AssignHODPayload(BaseModel):
+    user_id: int
+    department_id: int
+
+@router.post("/assign-hod")
+async def assign_department_hod(
+    payload: AssignHODPayload,
+    db: AsyncSession = Depends(get_db),
+    current_school: School = Depends(get_current_school),
+    token_data: tuple = Depends(get_current_user)
+):
+    """Bind a staff member as HOD of an academic department.
+
+    NOTE on auth: `get_current_user` returns a (User, jwt_payload) tuple, not a
+    bare User (see hod.py's get_current_hod_user for the same gotcha). We also
+    pull in get_current_school for tenant scoping, matching every other route
+    in this file. Neither User nor the JWT payload carries a `role` we can
+    trust here, so the admin check below queries `school_users` directly --
+    if you already have a dedicated `get_current_admin` dependency elsewhere
+    in auth.py, swap it in instead of this inline check.
+    """
+    admin_user, _payload = token_data
+
+    # 1. Confirm the caller is an admin *of this school* (role lives in the
+    #    school_users join table, not on User or the token payload)
+    admin_membership = await db.execute(
+        select(school_users).where(
+            school_users.c.school_id == current_school.id,
+            school_users.c.user_id == admin_user.id,
+            school_users.c.role == UserRole.ADMIN
+        )
+    )
+    if not admin_membership.first():
+        raise HTTPException(status_code=403, detail="Unauthorized: Administrators only.")
+
+    # 2. Verify the target user exists AND belongs to this school (via
+    #    school_users -- User itself has no school_id column)
+    user_res = await db.execute(
+        select(User)
+        .join(school_users, school_users.c.user_id == User.id)
+        .where(User.id == payload.user_id, school_users.c.school_id == current_school.id)
+    )
+    user = user_res.scalar_one_or_none()
+    if not user:
+        raise HTTPException(status_code=404, detail="Selected staff member not found in this school.")
+
+    # 3. Verify the department exists AND belongs to this school
+    dept_res = await db.execute(
+        select(AcademicDepartment).where(
+            AcademicDepartment.id == payload.department_id,
+            AcademicDepartment.school_id == current_school.id
+        )
+    )
+    dept = dept_res.scalar_one_or_none()
+    if not dept:
+        raise HTTPException(status_code=404, detail="Selected department not found.")
+
+    # 4. Bind the user as HOD. This is the single source of truth hod.py's
+    #    get_managed_department() reads from -- there's no separate "hod"
+    #    role flag to flip on school_users, since map_frontend_role_to_db_role
+    #    already collapses "hod" into UserRole.TEACHER there.
+    dept.hod_id = payload.user_id
+
+    await db.commit()
+    return {"success": True, "message": f"{user.full_name} is now the official HOD for {dept.name}."}
 
 @router.get("/teachers", response_model=List[UserResponse])
 async def get_teachers(db: AsyncSession = Depends(get_db), current_school: School = Depends(get_current_school)):

@@ -1,5 +1,5 @@
 import { type ChangeEvent, type FormEvent, useEffect, useState } from 'react'
-import { Plus, Search, Filter, UserCheck, Mail, Phone, Calendar, CheckCircle, XCircle, DollarSign, Pencil, Trash2 } from 'lucide-react'
+import { Plus, Search, Filter, UserCheck, Mail, Phone, Calendar, CheckCircle, XCircle, DollarSign, Pencil, Trash2, Building } from 'lucide-react'
 import { Link } from 'react-router'
 import { Button } from '../components/ui/button'
 import { Input } from '../components/ui/input'
@@ -217,18 +217,10 @@ export default function Staff() {
       return
     }
 
-    if (['teacher', 'class_teacher'].includes(formData.role)) {
-      if (!formData.password) {
-        setError('Please provide a password for the account.')
-        setIsSubmitting(false)
-        return
-      }
-
-      if (!formData.classAssigned) {
-        setError('Please assign a class.')
-        setIsSubmitting(false)
-        return
-      }
+    if (formData.role === 'class_teacher' && !formData.classAssigned) {
+      setError('Please assign a class for the Class Teacher role.')
+      setIsSubmitting(false)
+      return
     }
 
     try {
@@ -242,15 +234,16 @@ export default function Staff() {
             role: formData.role,
             phone: formData.phone,
             school_id: formData.school_id,
-            class_assigned: formData.classAssigned,
-            subject: formData.subject
+            class_assigned: formData.role === 'class_teacher' ? formData.classAssigned : null,
+            subject: formData.subject,
+            department: formData.department
           })
         })
 
         const data = await response.json()
 
         if (!response.ok) {
-          throw new Error(data?.error || 'Failed to create teacher account.')
+          throw new Error(data?.error || 'Failed to create user account.')
         }
       }
 
@@ -292,12 +285,14 @@ export default function Staff() {
   }
 
   const openStaffEdit = (member: StaffMember) => {
+    // Reverse display format back to backend functional formats if needed
+    const backendRoleFormat = member.role.toLowerCase().replace(' ', '_');
     setEditStaffForm({
       id: member.id,
       name: member.name,
       email: member.email,
       phone: member.phone,
-      role: member.role,
+      role: backendRoleFormat,
       department: member.department,
       classAssigned: member.class_assigned ?? '',
       subject: member.subject ?? '',
@@ -319,13 +314,13 @@ export default function Staff() {
     const response = await api(`/api/staff/${editingStaffId}`, {
       method: 'PUT',
       body: JSON.stringify({
-        name: editStaffForm.name, // Matches the backend data.name expectation
+        name: editStaffForm.name,
         email: editStaffForm.email,
         phone: editStaffForm.phone,
         department: editStaffForm.department,
-        role: editStaffForm.role.toLowerCase(), // Fixed Bug #1 & #2: Pass lowercase role
-        class_assigned: ['teacher', 'class_teacher'].includes(editStaffForm.role.toLowerCase()) ? editStaffForm.classAssigned : null,
-        subject: ['teacher', 'class_teacher'].includes(editStaffForm.role.toLowerCase()) ? editStaffForm.subject : null,
+        role: editStaffForm.role.toLowerCase(),
+        class_assigned: editStaffForm.role.toLowerCase() === 'class_teacher' ? editStaffForm.classAssigned : null,
+        subject: ['teacher', 'class_teacher', 'hod', 'cbc_coordinator'].includes(editStaffForm.role.toLowerCase()) ? editStaffForm.subject : null,
         is_active: editStaffForm.status.toLowerCase() === 'active'
       })
     })
@@ -397,7 +392,7 @@ export default function Staff() {
   if (loading) {
     return (
       <div className="flex justify-center items-center h-64">
-        <p>Loading staff data...</p>
+        <p className="text-xs text-gray-500 animate-pulse">Loading school staff index...</p>
       </div>
     )
   }
@@ -422,7 +417,7 @@ export default function Staff() {
               <DialogHeader>
                 <DialogTitle>Add Staff Member</DialogTitle>
                 <DialogDescription>
-                  Add a new staff member to the school
+                  Add a new staff member to the school roster.
                 </DialogDescription>
               </DialogHeader>
               
@@ -445,52 +440,64 @@ export default function Staff() {
                   </div>
                   <div className="space-y-2">
                     <Label htmlFor="phone">Phone Number</Label>
-                    <Input id="phone" placeholder="+1-555-0000" value={formData.phone} onChange={handleInputChange} />
+                    <Input id="phone" placeholder="+254-700-000000" value={formData.phone} onChange={handleInputChange} />
                   </div>
                 </div>
 
                 <div className="grid grid-cols-2 gap-4">
                   <div className="space-y-2">
-  <Label htmlFor="role">Role</Label>
-  <Select value={editStaffForm.role.toLowerCase()} onValueChange={(value) => handleEditStaffSelectChange('role', value)}>
-    <SelectTrigger id="role">
-      <SelectValue placeholder="Select role" />
-    </SelectTrigger>
-    <SelectContent>
-      <SelectItem value="teacher">Teacher</SelectItem>
-      <SelectItem value="class_teacher">Class Teacher</SelectItem>
-      <SelectItem value="registrar">Registrar</SelectItem>
-      <SelectItem value="exam_officer">Exam Officer</SelectItem>
-      <SelectItem value="hod">HOD</SelectItem>
-      <SelectItem value="timetable_manager">Timetable Manager</SelectItem>
-      <SelectItem value="transport_manager">Transport Manager</SelectItem>
-      <SelectItem value="boarding_master">Boarding Master</SelectItem>
-      <SelectItem value="cbc_coordinator">CBC Coordinator</SelectItem>
-      <SelectItem value="hr_manager">HR Manager</SelectItem>
-      <SelectItem value="admission_officer">Admission Officer</SelectItem>
-      <SelectItem value="nurse">Nurse</SelectItem>
-      <SelectItem value="administrator">Administrator</SelectItem>
-      <SelectItem value="counselor">Counselor</SelectItem>
-      <SelectItem value="librarian">Librarian</SelectItem>
-    </SelectContent>
-  </Select>
-</div>
+                    <Label htmlFor="role">Role</Label>
+                    <Select value={formData.role} onValueChange={(value) => handleSelectChange('role', value)}>
+                      <SelectTrigger id="role">
+                        <SelectValue placeholder="Select role" />
+                      </SelectTrigger>
+                      <SelectContent>
+                        <SelectItem value="teacher">Teacher</SelectItem>
+                        <SelectItem value="class_teacher">Class Teacher</SelectItem>
+                        <SelectItem value="registrar">Registrar</SelectItem>
+                        <SelectItem value="exam_officer">Exam Officer</SelectItem>
+                        <SelectItem value="hod">HOD</SelectItem>
+                        <SelectItem value="timetable_manager">Timetable Manager</SelectItem>
+                        <SelectItem value="transport_manager">Transport Manager</SelectItem>
+                        <SelectItem value="boarding_master">Boarding Master</SelectItem>
+                        <SelectItem value="cbc_coordinator">CBC Coordinator</SelectItem>
+                        <SelectItem value="hr_manager">HR Manager</SelectItem>
+                        <SelectItem value="admission_officer">Admission Officer</SelectItem>
+                        <SelectItem value="nurse">Nurse</SelectItem>
+                        <SelectItem value="administrator">Administrator</SelectItem>
+                        <SelectItem value="counselor">Counselor</SelectItem>
+                        <SelectItem value="librarian">Librarian</SelectItem>
+                      </SelectContent>
+                    </Select>
+                  </div>
                   <div className="space-y-2">
                     <Label htmlFor="department">Department</Label>
-                    <Select value={formData.department || undefined} onValueChange={(value) => handleSelectChange('department', value)}>
+                    <Select value={formData.department} onValueChange={(value) => handleSelectChange('department', value)}>
                       <SelectTrigger id="department">
                         <SelectValue placeholder="Select department" />
                       </SelectTrigger>
                       <SelectContent>
                         <SelectItem value="Mathematics">Mathematics</SelectItem>
-                        <SelectItem value="Science">Science</SelectItem>
-                        <SelectItem value="English">English</SelectItem>
-                        <SelectItem value="History">History</SelectItem>
+                        <SelectItem value="Languages">Languages</SelectItem>
+                        <SelectItem value="Sciences">Sciences</SelectItem>
+                        <SelectItem value="Humanities">Humanities</SelectItem>
+                        <SelectItem value="Technical & Applied Sciences">Technical & Applied Sciences</SelectItem>
                         <SelectItem value="Administration">Administration</SelectItem>
                       </SelectContent>
                     </Select>
                   </div>
                 </div>
+
+                {/* Localized Kenyan HOD Wing Hook */}
+                {formData.role === 'hod' && (
+                  <div className="bg-blue-50/50 p-3 border border-blue-100 rounded-lg flex items-start space-x-3 text-xs">
+                    <Building className="w-4 h-4 text-blue-500 mt-0.5" />
+                    <div className="space-y-1 flex-1">
+                      <Label className="font-bold text-gray-700">Link HOD Scope Parameters</Label>
+                      <p className="text-[10px] text-gray-400">Binding an HOD maps subject visibility permissions to their dashboard matching your selection above.</p>
+                    </div>
+                  </div>
+                )}
 
                 <div className="grid grid-cols-2 gap-4">
                   <div className="space-y-2">
@@ -503,26 +510,30 @@ export default function Staff() {
                   </div>
                 </div>
 
+                {/* Segregated Academic Fields - Assigned Class now limited cleanly to Class Teacher role */}
                 {['teacher', 'class_teacher', 'hod', 'cbc_coordinator'].includes(formData.role) && (
-                  <div className="grid grid-cols-2 gap-4">
+                  <div className="grid grid-cols-2 gap-4 pt-2 border-t border-dashed">
+                    {formData.role === 'class_teacher' ? (
+                      <div className="space-y-2">
+                        <Label htmlFor="classAssigned">Assigned Class Stream</Label>
+                        <Select value={formData.classAssigned} onValueChange={(value) => handleSelectChange('classAssigned', value)}>
+                          <SelectTrigger id="classAssigned">
+                            <SelectValue placeholder="Select class stream" />
+                          </SelectTrigger>
+                          <SelectContent>
+                            <SelectItem value="Grade 7 - East">Grade 7 - East</SelectItem>
+                            <SelectItem value="Grade 7 - West">Grade 7 - West</SelectItem>
+                            <SelectItem value="Grade 8 - East">Grade 8 - East</SelectItem>
+                            <SelectItem value="Grade 8 - West">Grade 8 - West</SelectItem>
+                            <SelectItem value="Form 3 - Alpha">Form 3 - Alpha</SelectItem>
+                            <SelectItem value="Form 4 - Beta">Form 4 - Beta</SelectItem>
+                          </SelectContent>
+                        </Select>
+                      </div>
+                    ) : <div />}
+                    
                     <div className="space-y-2">
-                      <Label htmlFor="classAssigned">Assigned Class</Label>
-                      <Select value={formData.classAssigned} onValueChange={(value) => handleSelectChange('classAssigned', value)}>
-                        <SelectTrigger id="classAssigned">
-                          <SelectValue placeholder="Select class" />
-                        </SelectTrigger>
-                        <SelectContent>
-                          <SelectItem value="Grade 10 - Section A">Grade 10 - Section A</SelectItem>
-                          <SelectItem value="Grade 10 - Section B">Grade 10 - Section B</SelectItem>
-                          <SelectItem value="Grade 11 - Section A">Grade 11 - Section A</SelectItem>
-                          <SelectItem value="Grade 11 - Section B">Grade 11 - Section B</SelectItem>
-                          <SelectItem value="Grade 12 - Section A">Grade 12 - Section A</SelectItem>
-                          <SelectItem value="Grade 12 - Section B">Grade 12 - Section B</SelectItem>
-                        </SelectContent>
-                      </Select>
-                    </div>
-                    <div className="space-y-2">
-                      <Label htmlFor="subject">Subject</Label>
+                      <Label htmlFor="subject">Primary Specialization Subject</Label>
                       <Select value={formData.subject} onValueChange={(value) => handleSelectChange('subject', value)}>
                         <SelectTrigger id="subject">
                           <SelectValue placeholder="Select subject" />
@@ -530,12 +541,14 @@ export default function Staff() {
                         <SelectContent>
                           <SelectItem value="Mathematics">Mathematics</SelectItem>
                           <SelectItem value="English">English</SelectItem>
-                          <SelectItem value="Science">Science</SelectItem>
-                          <SelectItem value="History">History</SelectItem>
+                          <SelectItem value="Kiswahili">Kiswahili</SelectItem>
+                          <SelectItem value="Chemistry">Chemistry</SelectItem>
+                          <SelectItem value="Physics">Physics</SelectItem>
+                          <SelectItem value="Biology">Biology</SelectItem>
                           <SelectItem value="Geography">Geography</SelectItem>
-                          <SelectItem value="Art">Art</SelectItem>
-                          <SelectItem value="Physical Education">Physical Education</SelectItem>
-                          <SelectItem value="Class Teacher">Class Teacher</SelectItem>
+                          <SelectItem value="History & Government">History & Government</SelectItem>
+                          <SelectItem value="Business Studies">Business Studies</SelectItem>
+                          <SelectItem value="Agriculture">Agriculture</SelectItem>
                         </SelectContent>
                       </Select>
                     </div>
@@ -543,7 +556,7 @@ export default function Staff() {
                 )}
               </div>
 
-              {error && <p className="text-sm text-red-500">{error}</p>}
+              {error && <p className="text-xs font-semibold text-red-500">{error}</p>}
               
               <DialogFooter>
                 <Button type="button" variant="outline" onClick={() => setIsStaffDialogOpen(false)} disabled={isSubmitting}>
@@ -571,7 +584,7 @@ export default function Staff() {
               <DialogHeader>
                 <DialogTitle>Edit Staff Member</DialogTitle>
                 <DialogDescription>
-                  Update staff details and assignments
+                  Update staff details and allocations
                 </DialogDescription>
               </DialogHeader>
 
@@ -600,56 +613,60 @@ export default function Staff() {
 
                 <div className="grid grid-cols-2 gap-4">
                   <div className="space-y-2">
-                    <Label htmlFor="role">Role</Label>
+                    <Label htmlFor="editRole">Role</Label>
                     <Select value={editStaffForm.role} onValueChange={(value) => handleEditStaffSelectChange('role', value)}>
-                      <SelectTrigger id="role">
+                      <SelectTrigger id="editRole">
                         <SelectValue placeholder="Select role" />
                       </SelectTrigger>
                       <SelectContent>
-                        <SelectItem value="Teacher">Teacher</SelectItem>
-                        <SelectItem value="Class_teacher">Class Teacher</SelectItem>
-                        <SelectItem value="Registrar">Registrar</SelectItem>
-                        <SelectItem value="Exam_officer">Exam Officer</SelectItem>
-                        <SelectItem value="Hod">HOD</SelectItem>
-                        <SelectItem value="Timetable_manager">Timetable Manager</SelectItem>
-                        <SelectItem value="Transport_manager">Transport Manager</SelectItem>
-                        <SelectItem value="Boarding_master">Boarding Master</SelectItem>
-                        <SelectItem value="Cbc_coordinator">CBC Coordinator</SelectItem>
-                        <SelectItem value="Hr_manager">HR Manager</SelectItem>
-                        <SelectItem value="Admission_officer">Admission Officer</SelectItem>
-                        <SelectItem value="Nurse">Nurse</SelectItem>
-                        <SelectItem value="Administrator">Administrator</SelectItem>
-                        <SelectItem value="Counselor">Counselor</SelectItem>
-                        <SelectItem value="Librarian">Librarian</SelectItem>
+                        <SelectItem value="teacher">Teacher</SelectItem>
+                        <SelectItem value="class_teacher">Class Teacher</SelectItem>
+                        <SelectItem value="registrar">Registrar</SelectItem>
+                        <SelectItem value="exam_officer">Exam Officer</SelectItem>
+                        <SelectItem value="hod">HOD</SelectItem>
+                        <SelectItem value="timetable_manager">Timetable Manager</SelectItem>
+                        <SelectItem value="transport_manager">Transport Manager</SelectItem>
+                        <SelectItem value="boarding_master">Boarding Master</SelectItem>
+                        <SelectItem value="cbc_coordinator">CBC Coordinator</SelectItem>
+                        <SelectItem value="hr_manager">HR Manager</SelectItem>
+                        <SelectItem value="admission_officer">Admission Officer</SelectItem>
+                        <SelectItem value="nurse">Nurse</SelectItem>
+                        <SelectItem value="administrator">Administrator</SelectItem>
+                        <SelectItem value="counselor">Counselor</SelectItem>
+                        <SelectItem value="librarian">Librarian</SelectItem>
                       </SelectContent>
                     </Select>
                   </div>
                   <div className="space-y-2">
-                    <Label htmlFor="department">Department</Label>
+                    <Label htmlFor="editDepartment">Department</Label>
                     <Select value={editStaffForm.department} onValueChange={(value) => handleEditStaffSelectChange('department', value)}>
-                      <SelectTrigger id="department">
+                      <SelectTrigger id="editDepartment">
                         <SelectValue placeholder="Select department" />
                       </SelectTrigger>
                       <SelectContent>
                         <SelectItem value="Mathematics">Mathematics</SelectItem>
-                        <SelectItem value="Science">Science</SelectItem>
-                        <SelectItem value="English">English</SelectItem>
-                        <SelectItem value="History">History</SelectItem>
+                        <SelectItem value="Languages">Languages</SelectItem>
+                        <SelectItem value="Sciences">Sciences</SelectItem>
+                        <SelectItem value="Humanities">Humanities</SelectItem>
+                        <SelectItem value="Technical & Applied Sciences">Technical & Applied Sciences</SelectItem>
                         <SelectItem value="Administration">Administration</SelectItem>
                       </SelectContent>
                     </Select>
                   </div>
                 </div>
 
-                {['Teacher', 'Class_teacher', 'Hod', 'Cbc_coordinator'].includes(editStaffForm.role) && (
-                  <div className="grid grid-cols-2 gap-4">
-                    <div className="space-y-2">
-                      <Label htmlFor="classAssigned">Assigned Class</Label>
-                      <Input id="classAssigned" value={editStaffForm.classAssigned} onChange={handleEditStaffInputChange} />
-                    </div>
+                {/* Segregated Academic Fields for Edit flow */}
+                {['teacher', 'class_teacher', 'hod', 'cbc_coordinator'].includes(editStaffForm.role) && (
+                  <div className="grid grid-cols-2 gap-4 pt-2 border-t border-dashed">
+                    {editStaffForm.role === 'class_teacher' ? (
+                      <div className="space-y-2">
+                        <Label htmlFor="classAssigned">Assigned Class Stream</Label>
+                        <Input id="classAssigned" placeholder="e.g. Grade 7 - East" value={editStaffForm.classAssigned} onChange={handleEditStaffInputChange} />
+                      </div>
+                    ) : <div />}
                     <div className="space-y-2">
                       <Label htmlFor="subject">Subject</Label>
-                      <Input id="subject" value={editStaffForm.subject} onChange={handleEditStaffInputChange} />
+                      <Input id="subject" placeholder="e.g. Chemistry" value={editStaffForm.subject} onChange={handleEditStaffInputChange} />
                     </div>
                   </div>
                 )}
