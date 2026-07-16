@@ -31,7 +31,7 @@ class DepartmentMembership(Base):
 
     # Relationships
     department = relationship("AcademicDepartment", back_populates="members")
-    teacher = relationship("User")
+    teacher = relationship("User", back_populates="department_memberships")
 class ClassTeacherAssignment(Base):
     __tablename__ = "class_teacher_assignments"
 

@@ -15,7 +15,7 @@ from models_roles import ClassTeacherAssignment
 import logging
 import traceback
 import os
-
+from hod import router as hod_router
 from database import get_db, init_db
 from models import User, School, school_users, UserRole
 from auth import (
@@ -47,7 +47,6 @@ from transport_boarding import router as transport_router
 from curriculum import router as curriculum_router
 from class_teacher import router as class_teacher_router
 from sqlalchemy import delete
-from hod import router as hod_router
 
 # Setup logging
 logging.basicConfig(level=logging.INFO)

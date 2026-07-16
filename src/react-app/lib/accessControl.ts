@@ -24,7 +24,8 @@ export const routeRoles: { path: string; roles: Role[] }[] = [
   { path: '/dashboard/boarding', roles: ['admin', 'registrar', 'boarding_master'] },
   { path: '/dashboard/curriculum-assessment', roles: ['admin', 'teacher', 'exam_officer', 'hod', 'cbc_coordinator'] },
   { path: '/dashboard/settings', roles: ['admin', 'super_admin'] },
-  { path: '/dashboard/class-teacher', roles: ['class_teacher', 'admin'] }
+  { path: '/dashboard/class-teacher', roles: ['class_teacher', 'admin'] },
+  { path: '/dashboard/hod', roles: ['hod', 'admin'] }
 
 ];
 
@@ -36,8 +37,14 @@ export function routeAllowsRole(pathname: string, roles: string[]): boolean {
   if (candidates.length === 0) return true;
   return candidates[0].roles.some(allowed => roles.includes(allowed));
 }
-
-// Append permissions configuration rules inside src/react-app/lib/accessControl.ts
+export const ROLE_PERMISSIONS = {
+  hod: [
+    'view_dashboard',
+    'view_reports',
+    'manage_inventory',
+    'issue_assets'
+  ],
+};
 
 export const CURRICULUM_PERMISSIONS = {
   MANAGE_MASTER_TAXONOMY: ['super_admin'],

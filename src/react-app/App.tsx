@@ -140,7 +140,7 @@ function AppRoutes() {
         <Route path="teacher-dashboard" element={<TeacherDashboard />} />
         <Route path="/dashboard/class-teacher" element={<ClassTeacherDashboard />} />
         <Route path="/dashboard" element={<DashboardLayout />}></Route>
-        <Route path="hod" element={<HodDashboard />} />
+        <Route path="hod" element={<RoleRoute><HodDashboard /></RoleRoute>} />
         <Route path="cbc" element={<CBC />} />
         {/* <Route path="nemis" element={<NEMIS />} />
         <Route path="knec" element={<KNEC />} /> */}

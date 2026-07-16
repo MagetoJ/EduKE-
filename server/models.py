@@ -115,7 +115,7 @@ class User(Base):
     is_active = Column(Boolean, default=True)
     is_super_admin = Column(Boolean, default=False)
     created_at = Column(DateTime, default=datetime.utcnow)
-
+    department_memberships = relationship("DepartmentMembership", back_populates="teacher", cascade="all, delete-orphan")
     # Relationships
     schools = relationship("School", secondary=school_users, back_populates="users")
 
@@ -155,10 +155,12 @@ class Asset(Base):
     sku = Column(String(50), index=True)  # Barcode/Serial Number
     quantity = Column(Integer, default=0)
     asset_type = Column(String(50))  # e.g., "Textbook", "Lab Equipment"
+    department_id = Column(Integer, ForeignKey("academic_departments.id", ondelete="SET NULL"), nullable=True)
 
     # Relationships
     school = relationship("School", back_populates="assets")
     movements = relationship("AssetMovement", back_populates="asset")
+    department = relationship("AcademicDepartment")
 
 class AssetMovement(Base):
     """Tracking assignment of assets (Adapted from SmartBiz StockMovement)"""
@@ -548,6 +550,7 @@ class Course(Base):
     academic_year_id = Column(Integer, ForeignKey("academic_years.id", ondelete="SET NULL"))
     
     department_id = Column(Integer, ForeignKey("academic_departments.id", ondelete="SET NULL"), nullable=True)
+    department = relationship("AcademicDepartment", back_populates="courses")
     
     name = Column(String(255), nullable=False)
     code = Column(String(50))

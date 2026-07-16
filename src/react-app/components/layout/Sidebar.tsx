@@ -20,7 +20,8 @@ import {
   Bus,
   Home,
   TrendingUp,
-  Shield
+  Shield,
+  ClipboardList
 } from 'lucide-react'
 import { cn } from '../../lib/utils'
 import { useAuth, UserRole } from '../../contexts/AuthContext'
@@ -176,6 +177,12 @@ const navItems: NavItem[] = [
     href: '/dashboard/subjects',
     icon: BookOpen,
     roles: ['admin', 'registrar', 'hod']
+  },
+  {
+    title: 'HOD Command Center',
+    href: '/dashboard/hod',
+    icon: ClipboardList,
+    roles: ['hod', 'admin']
   },
 ]
 
