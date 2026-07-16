@@ -78,17 +78,14 @@ async def get_managed_department(db: AsyncSession, user_id: int, school_id: int)
 @router.get("/my-department")
 async def get_department_details(
     db: AsyncSession = Depends(get_db),
-    current_user: tuple = Depends(get_current_user) # Changed type hint to tuple
+    current_user: User = Depends(get_current_hod_user)
 ):
     """
     Returns department parameters, auto-healing unassigned HOD profiles 
     safely on execution.
     """
-    # Fix: Unpack the tuple cleanly right at the door!
-    user, payload = current_user
-    
-    # Obtain the current school ID from either the user profile or token scope payload
-    school_id = payload.get("school_id") or user.school_id
+    user = current_user
+    school_id = user.school_id  # transient attribute set by get_current_hod_user
 
     # 1. Attempt to find a department where this user is explicitly registered as HOD
     dept_res = await db.execute(
@@ -436,15 +433,14 @@ async def get_department_staff_roster(
 @router.get("/eligible-teachers")
 async def get_eligible_school_teachers(
     db: AsyncSession = Depends(get_db),
-    current_user: tuple = Depends(get_current_user) # Cast to tuple
+    current_user: User = Depends(get_current_hod_user)
 ):
     """
     Returns all teaching faculty in the school who are NOT currently in this department roster.
     Includes both standard teachers and class teachers.
     """
-    # Fix: Unpack the tuple cleanly at the beginning of the function
-    user, payload = current_user
-    school_id = payload.get("school_id") or user.school_id
+    user = current_user
+    school_id = user.school_id  # transient attribute set by get_current_hod_user
 
     dept = await get_managed_department(db, user.id, school_id)
     
@@ -453,12 +449,16 @@ async def get_eligible_school_teachers(
     existing_members_res = await db.execute(existing_members_query)
     existing_ids = existing_members_res.scalars().all()
     
-    # Query all eligible instructors (Supports both generic teacher and class_teacher roles)
+    # Query all eligible instructors (Supports both generic teacher and class_teacher roles).
+    # NOTE: User has no school_id/role columns of its own -- both live on the
+    # school_users association table, so we must join through it (see users.py
+    # get_school_users for the same pattern).
     eligible_query = (
         select(User)
+        .join(school_users, school_users.c.user_id == User.id)
         .where(
-            User.school_id == school_id,
-            User.role.in_(["teacher", "class_teacher"]),
+            school_users.c.school_id == school_id,
+            school_users.c.role.in_([UserRole.TEACHER, UserRole.CLASS_TEACHER]),
             User.id.not_in(existing_ids) if existing_ids else True
         )
     )
@@ -475,18 +475,20 @@ async def get_eligible_school_teachers(
 async def add_teacher_to_roster(
     payload: AddRosterTeacherPayload,
     db: AsyncSession = Depends(get_db),
-    current_user: tuple = Depends(get_current_user) # Cast to tuple
+    current_user: User = Depends(get_current_hod_user)
 ):
     """Adds a teacher to the HOD's department roster with multi-tenant safety parameters"""
-    # Fix: Unpack tuple
-    user, payload_data = current_user
-    school_id = payload_data.get("school_id") or user.school_id
+    user = current_user
+    school_id = user.school_id  # transient attribute set by get_current_hod_user
 
     dept = await get_managed_department(db, user.id, school_id)
     
-    # Verify the target teacher belongs to this school
+    # Verify the target teacher belongs to this school. User has no school_id
+    # column of its own -- membership lives on the school_users join table.
     teacher_res = await db.execute(
-        select(User).where(User.id == payload.teacher_id, User.school_id == school_id)
+        select(User)
+        .join(school_users, school_users.c.user_id == User.id)
+        .where(User.id == payload.teacher_id, school_users.c.school_id == school_id)
     )
     teacher = teacher_res.scalar_one_or_none()
     if not teacher:
@@ -526,12 +528,11 @@ async def assign_course_teacher(
     course_id: int,
     payload: CourseAssignPayload,
     db: AsyncSession = Depends(get_db),
-    current_user: tuple = Depends(get_current_user) # Cast to tuple
+    current_user: User = Depends(get_current_hod_user)
 ):
     """Binds a teacher from the HOD's roster to teach a specific Course"""
-    # Fix: Unpack tuple
-    user, payload_data = current_user
-    school_id = payload_data.get("school_id") or user.school_id
+    user = current_user
+    school_id = user.school_id  # transient attribute set by get_current_hod_user
 
     dept = await get_managed_department(db, user.id, school_id)
     
