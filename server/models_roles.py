@@ -59,3 +59,42 @@ class CbcCoordinatorAssignment(Base):
     
     #  FIX: Change "CbcGradeBand" to "GradeBand" to match the actual class definition in models.py
     grade_band = relationship("GradeBand")
+
+
+class ClassSubjectAssignment(Base):
+    """
+    Durable record of which teacher teaches a given SUBJECT (Course row) to a
+    given CLASS (grade + stream), independent of the weekly timetable.
+
+    This is the source of truth the HOD's "assign subject to teacher" screen
+    manages, and is what enforces the two business rules:
+      1. A class (grade + stream) can only have ONE teacher for a given
+         subject at a time -- enforced by the unique constraint below.
+      2. A teacher may teach several classes, but at most 2 distinct
+         subjects overall -- enforced in the /class-assignments/assign
+         endpoint (application-level, since it's a COUNT-based rule that a
+         plain column constraint can't express).
+
+    stream_section is intentionally NOT NULL (default "") rather than
+    nullable: Postgres treats NULL as distinct from NULL for uniqueness
+    purposes, so a nullable stream_section would silently defeat the unique
+    constraint for un-streamed classes.
+    """
+    __tablename__ = "class_subject_assignments"
+
+    id = Column(Integer, primary_key=True, index=True)
+    school_id = Column(Integer, ForeignKey("schools.id", ondelete="CASCADE"), nullable=False)
+    course_id = Column(Integer, ForeignKey("courses.id", ondelete="CASCADE"), nullable=False)
+    teacher_id = Column(Integer, ForeignKey("users.id", ondelete="CASCADE"), nullable=False)
+
+    grade_level = Column(String(50), nullable=False)
+    stream_section = Column(String(20), nullable=False, default="")
+
+    assigned_at = Column(DateTime, default=datetime.utcnow)
+
+    __table_args__ = (
+        UniqueConstraint("course_id", "grade_level", "stream_section", name="uq_one_teacher_per_class_subject"),
+    )
+
+    course = relationship("Course")
+    teacher = relationship("User", foreign_keys=[teacher_id])

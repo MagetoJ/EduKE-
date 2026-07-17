@@ -2,13 +2,14 @@ from fastapi import APIRouter, Depends, HTTPException, status
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select, update, delete, func, and_
 from sqlalchemy.orm import selectinload
-from typing import List, Optional
+from sqlalchemy.exc import IntegrityError
+from typing import List, Optional, Dict
 from pydantic import BaseModel
 from datetime import datetime
 
 from database import get_db
 from models import User, Course, Student, GradeEntry, Exam, TimetableSlot, LeaveRequest, Asset, AssetMovement, Notification, school_users, UserRole
-from models_roles import AcademicDepartment, DepartmentMembership
+from models_roles import AcademicDepartment, DepartmentMembership, ClassSubjectAssignment
 from models_class_teacher import StudentWelfareEscalation, ClassProgressReport, ProgressReportComment
 from auth import get_current_user
 
@@ -38,6 +39,18 @@ class HODProgressCommentPayload(BaseModel):
 
 class AddRosterTeacherPayload(BaseModel):
     teacher_id: int
+
+class CourseCreatePayload(BaseModel):
+    name: str
+    code: str
+    grade: str
+    description: Optional[str] = None
+
+class ClassSubjectAssignPayload(BaseModel):
+    course_id: int
+    teacher_id: int
+    grade_level: str
+    stream_section: Optional[str] = None
 
 # --- Auth Dependency Helper ---
 # NOTE: auth.get_current_user returns a (User, jwt_payload) TUPLE, not a bare
@@ -96,8 +109,38 @@ async def get_department_details(
     
     # DYNAMIC SELF-HEALING ENHANCEMENT:
     if not dept:
-        user_dept_str = getattr(user, 'department', '') or ''
-        
+        user_dept_str = ""
+
+        # A. Check if user is registered in any department membership already
+        member_dept_query = select(AcademicDepartment).join(
+            DepartmentMembership, DepartmentMembership.department_id == AcademicDepartment.id
+        ).where(
+            DepartmentMembership.teacher_id == user.id,
+            AcademicDepartment.school_id == school_id
+        )
+        member_dept_res = await db.execute(member_dept_query)
+        member_dept = member_dept_res.scalars().first()
+        if member_dept:
+            user_dept_str = member_dept.name
+
+        # B. Fallback to heuristic keywords in email/username/full_name
+        # NOTE: the User model has no `department` column, so a plain
+        # getattr(user, 'department', '') always returned '' here, which
+        # meant every un-provisioned HOD fell through to the first
+        # unassigned department (or a hardcoded "Sciences" default). This
+        # keyword pass gives a much better guess before we fall back.
+        if not user_dept_str:
+            for keyword, dept_name in [
+                ("lang", "Languages"), ("english", "Languages"), ("kiswahili", "Languages"), ("french", "Languages"), ("german", "Languages"),
+                ("math", "Mathematics"), ("computer", "Mathematics"),
+                ("sci", "Sciences"), ("chem", "Sciences"), ("phys", "Sciences"), ("biol", "Sciences"),
+                ("hum", "Humanities"), ("hist", "Humanities"), ("geog", "Humanities"), ("cre", "Humanities"),
+                ("tech", "Technical"), ("agri", "Technical"), ("business", "Technical"), ("music", "Technical")
+            ]:
+                if keyword in user.email.lower() or keyword in user.username.lower() or keyword in user.full_name.lower():
+                    user_dept_str = dept_name
+                    break
+
         fallback_query = select(AcademicDepartment).where(
             AcademicDepartment.school_id == school_id,
             AcademicDepartment.hod_id.is_(None)
@@ -116,16 +159,19 @@ async def get_department_details(
             dept.hod_id = user.id
             await db.flush()
         else:
-            # Provision a new localized department slot for this school tenant instantly
-            target_name = f"{user_dept_str or 'Sciences'} Department"
-            target_code = "SCI"
-            if "lang" in user_dept_str.lower() or "eng" in user_dept_str.lower():
-                target_code = "LANG"
-            elif "math" in user_dept_str.lower():
+            # Provision a new localized department slot for this school tenant instantly.
+            # Default to Languages (rather than Sciences) when no keyword match is found,
+            # since silently defaulting to a specific subject department is itself a guess --
+            # this at least avoids overloading Sciences for every unmatched HOD.
+            target_name = f"{user_dept_str or 'Languages'} Department"
+            target_code = "LANG"
+            if "sci" in target_name.lower() or "chem" in target_name.lower() or "phys" in target_name.lower() or "biol" in target_name.lower():
+                target_code = "SCI"
+            elif "math" in target_name.lower():
                 target_code = "MATH"
-            elif "hum" in user_dept_str.lower():
+            elif "hum" in target_name.lower():
                 target_code = "HUM"
-            elif "tech" in user_dept_str.lower() or "app" in user_dept_str.lower():
+            elif "tech" in target_name.lower() or "app" in target_name.lower():
                 target_code = "TECH"
 
             dept = AcademicDepartment(
@@ -142,17 +188,33 @@ async def get_department_details(
         dept.school_id = school_id
         await db.flush()
 
-    # Auto-link this school's courses to their correct department rows
-    subject_keywords_by_code = {
-        "MATH": ["Mathematics", "Computer Studies"],
+    # Auto-link this school's courses to their correct department rows.
+    # LINK_KEYWORDS is intentionally broader (includes generic names like
+    # "Science"/"Languages") so any loosely-named pre-existing course still
+    # gets swept into the right department.
+    link_keywords_by_code = {
+        "MATH": ["Mathematics", "Computer Studies", "Computer"],
         "LANG": ["English", "Kiswahili", "French", "German", "Languages"],
         "SCI": ["Chemistry", "Physics", "Biology", "Science"],
-        "HUM": ["History", "Geography", "CRE", "IRE"],
-        "TECH": ["Agriculture", "Business", "Home Science", "Music"]
+        "HUM": ["History", "Geography", "CRE", "IRE", "Humanities"],
+        "TECH": ["Agriculture", "Business", "Home Science", "Music", "Technical"]
     }
 
-    if dept.code in subject_keywords_by_code:
-        for keyword in subject_keywords_by_code[dept.code]:
+    # CANONICAL_SUBJECTS is the authoritative subject list per department --
+    # these are the actual subjects that must exist (and be visible on the
+    # HOD's dashboard) for that department, regardless of whether the school
+    # ever got around to creating them. If a subject in this list has no
+    # matching Course row in the department yet, we provision a starter one.
+    canonical_subjects_by_code = {
+        "MATH": ["Mathematics", "Computer Studies"],
+        "LANG": ["English", "Kiswahili", "French", "German"],
+        "SCI": ["Chemistry", "Physics", "Biology"],
+        "HUM": ["History", "Geography", "CRE"],
+        "TECH": ["Agriculture", "Business Studies", "Home Science", "Music"]
+    }
+
+    if dept.code in link_keywords_by_code:
+        for keyword in link_keywords_by_code[dept.code]:
             await db.execute(
                 update(Course)
                 .where(
@@ -162,6 +224,42 @@ async def get_department_details(
                 )
                 .values(department_id=dept.id)
             )
+        await db.flush()
+
+    if dept.code in canonical_subjects_by_code:
+        for subject_name in canonical_subjects_by_code[dept.code]:
+            # Skip if this department already has a course covering this subject
+            existing_subject_res = await db.execute(
+                select(Course.id).where(
+                    Course.school_id == school_id,
+                    Course.department_id == dept.id,
+                    Course.name.ilike(f"%{subject_name}%")
+                ).limit(1)
+            )
+            if existing_subject_res.scalar_one_or_none():
+                continue
+
+            # Generate a school-unique code for the new subject
+            base_code = f"{dept.code}-{subject_name[:3].upper()}"
+            candidate_code = base_code
+            suffix = 1
+            while True:
+                code_res = await db.execute(
+                    select(Course.id).where(Course.school_id == school_id, Course.code == candidate_code)
+                )
+                if not code_res.scalar_one_or_none():
+                    break
+                suffix += 1
+                candidate_code = f"{base_code}{suffix}"
+
+            db.add(Course(
+                school_id=school_id,
+                department_id=dept.id,
+                name=subject_name,
+                code=candidate_code,
+                grade="All Grades",
+                is_active=True
+            ))
         await db.flush()
 
     # Query registered teachers on this department's roster
@@ -233,6 +331,257 @@ async def get_department_details(
             "courses": course_data
         }
     }
+
+@router.post("/courses/create")
+async def create_department_course(
+    payload: CourseCreatePayload,
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_hod_user)
+):
+    """Creates a new course/subject within the HOD's managed department"""
+    dept = await get_managed_department(db, current_user.id, current_user.school_id)
+
+    # Check if a course with the same code already exists in this school
+    existing_course_res = await db.execute(
+        select(Course).where(
+            Course.school_id == current_user.school_id,
+            Course.code == payload.code
+        )
+    )
+    if existing_course_res.scalar_one_or_none():
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=f"Course with code '{payload.code}' already exists in this school."
+        )
+
+    new_course = Course(
+        school_id=current_user.school_id,
+        department_id=dept.id,
+        name=payload.name,
+        code=payload.code,
+        description=payload.description,
+        grade=payload.grade,
+        is_active=True
+    )
+    db.add(new_course)
+    await db.commit()
+    await db.refresh(new_course)
+
+    return {
+        "success": True,
+        "message": f"Successfully created subject '{payload.name}' within {dept.name}.",
+        "data": {
+            "id": new_course.id,
+            "name": new_course.name,
+            "code": new_course.code,
+            "grade": new_course.grade
+        }
+    }
+
+
+# ==================== CLASS-LEVEL SUBJECT ASSIGNMENTS ====================
+# The plain /courses/{id}/assign endpoint below only supports ONE teacher per
+# Course row, which can't express "the same subject taught to different
+# classes by different teachers". These endpoints are the real mechanism for
+# that: they operate on (subject, grade, stream) triples rather than on the
+# Course row alone, and enforce:
+#   1. A class (grade + stream) can't be double-booked with two different
+#      teachers for the same subject.
+#   2. A teacher can be attached to many classes, but never more than
+#      MAX_SUBJECTS_PER_TEACHER distinct subjects.
+
+MAX_SUBJECTS_PER_TEACHER = 2
+
+@router.get("/available-grades")
+async def get_available_grades(
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_hod_user)
+):
+    """
+    Returns the distinct grade/stream combinations actually in use by
+    students at this school, so the HOD's assignment form can offer a real
+    picklist instead of free text.
+    """
+    result = await db.execute(
+        select(Student.grade, Student.stream_section)
+        .where(Student.school_id == current_user.school_id)
+        .distinct()
+        .order_by(Student.grade)
+    )
+    rows = result.all()
+    return {
+        "success": True,
+        "data": [{"grade": g, "stream_section": s or ""} for g, s in rows]
+    }
+
+
+@router.get("/class-assignments")
+async def list_class_assignments(
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_hod_user)
+):
+    """Lists every (subject, class, teacher) assignment inside this HOD's department."""
+    dept = await get_managed_department(db, current_user.id, current_user.school_id)
+
+    result = await db.execute(
+        select(ClassSubjectAssignment)
+        .options(
+            selectinload(ClassSubjectAssignment.course),
+            selectinload(ClassSubjectAssignment.teacher)
+        )
+        .join(Course, ClassSubjectAssignment.course_id == Course.id)
+        .where(Course.department_id == dept.id)
+        .order_by(ClassSubjectAssignment.grade_level, ClassSubjectAssignment.stream_section)
+    )
+    rows = result.scalars().all()
+
+    # Also surface, per teacher, how many distinct subjects they already hold
+    # school-wide -- lets the frontend grey out the option before the user
+    # even tries and gets a 400.
+    teacher_subject_counts: Dict[int, int] = {}
+    if rows:
+        teacher_ids = {r.teacher_id for r in rows}
+        for tid in teacher_ids:
+            count_res = await db.execute(
+                select(func.count(func.distinct(ClassSubjectAssignment.course_id)))
+                .where(ClassSubjectAssignment.teacher_id == tid)
+            )
+            teacher_subject_counts[tid] = count_res.scalar() or 0
+
+    return {
+        "success": True,
+        "data": [
+            {
+                "id": r.id,
+                "course_id": r.course_id,
+                "course_name": r.course.name,
+                "course_code": r.course.code,
+                "grade_level": r.grade_level,
+                "stream_section": r.stream_section,
+                "teacher_id": r.teacher_id,
+                "teacher_name": r.teacher.full_name if r.teacher else "Unknown",
+                "assigned_at": r.assigned_at.strftime("%Y-%m-%d") if r.assigned_at else None
+            } for r in rows
+        ],
+        "teacher_subject_counts": teacher_subject_counts
+    }
+
+
+@router.post("/class-assignments/assign")
+async def assign_class_subject(
+    payload: ClassSubjectAssignPayload,
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_hod_user)
+):
+    """
+    Assigns a teacher to teach one subject to one specific class (grade +
+    stream). Enforces: one teacher per class-subject, and a hard cap of
+    MAX_SUBJECTS_PER_TEACHER distinct subjects per teacher.
+    """
+    dept = await get_managed_department(db, current_user.id, current_user.school_id)
+
+    grade_level = (payload.grade_level or "").strip()
+    stream_section = (payload.stream_section or "").strip()
+    if not grade_level:
+        raise HTTPException(status_code=400, detail="A grade/class is required.")
+
+    # 1. Subject must belong to this HOD's department
+    course_res = await db.execute(
+        select(Course).where(Course.id == payload.course_id, Course.department_id == dept.id)
+    )
+    course = course_res.scalar_one_or_none()
+    if not course:
+        raise HTTPException(status_code=404, detail="Subject not found in this department.")
+
+    # 2. Teacher must already be on this department's roster
+    member_res = await db.execute(
+        select(DepartmentMembership)
+        .where(DepartmentMembership.department_id == dept.id, DepartmentMembership.teacher_id == payload.teacher_id)
+    )
+    if not member_res.scalar_one_or_none():
+        raise HTTPException(status_code=400, detail="Teacher is not a member of this department. Add them to the roster first.")
+
+    # 3. RULE: this class can't already be assigned a (different) teacher for this subject
+    existing_res = await db.execute(
+        select(ClassSubjectAssignment).where(
+            ClassSubjectAssignment.course_id == payload.course_id,
+            ClassSubjectAssignment.grade_level == grade_level,
+            ClassSubjectAssignment.stream_section == stream_section
+        )
+    )
+    existing = existing_res.scalar_one_or_none()
+    class_label = f"{grade_level} {stream_section}".strip()
+    if existing:
+        if existing.teacher_id == payload.teacher_id:
+            return {"success": True, "message": f"{course.name} is already assigned to this teacher for {class_label}."}
+        raise HTTPException(
+            status_code=400,
+            detail=f"{class_label} already has a teacher assigned for {course.name}. Unassign it first to reassign."
+        )
+
+    # 4. RULE: teacher may hold at most MAX_SUBJECTS_PER_TEACHER distinct subjects
+    distinct_res = await db.execute(
+        select(ClassSubjectAssignment.course_id)
+        .where(ClassSubjectAssignment.teacher_id == payload.teacher_id)
+        .distinct()
+    )
+    distinct_subject_ids = set(distinct_res.scalars().all())
+    distinct_subject_ids.add(payload.course_id)
+    if len(distinct_subject_ids) > MAX_SUBJECTS_PER_TEACHER:
+        raise HTTPException(
+            status_code=400,
+            detail=f"This teacher already teaches {MAX_SUBJECTS_PER_TEACHER} subjects. A teacher cannot be assigned more than {MAX_SUBJECTS_PER_TEACHER} subjects."
+        )
+
+    assignment = ClassSubjectAssignment(
+        school_id=current_user.school_id,
+        course_id=payload.course_id,
+        teacher_id=payload.teacher_id,
+        grade_level=grade_level,
+        stream_section=stream_section
+    )
+    db.add(assignment)
+
+    db.add(Notification(
+        school_id=current_user.school_id,
+        user_id=payload.teacher_id,
+        title="New Class Assignment",
+        message=f"You have been assigned to teach {course.name} to {class_label}.",
+        notification_type="info",
+        link_url="/dashboard/teacher"
+    ))
+
+    try:
+        await db.commit()
+    except IntegrityError:
+        await db.rollback()
+        raise HTTPException(status_code=400, detail=f"{class_label} already has a teacher assigned for {course.name}.")
+
+    return {"success": True, "message": f"Assigned {course.name} for {class_label} to teacher."}
+
+
+@router.delete("/class-assignments/{assignment_id}")
+async def unassign_class_subject(
+    assignment_id: int,
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_hod_user)
+):
+    """Frees up a class-subject slot so it can be reassigned to a different teacher."""
+    dept = await get_managed_department(db, current_user.id, current_user.school_id)
+
+    result = await db.execute(
+        select(ClassSubjectAssignment)
+        .join(Course, ClassSubjectAssignment.course_id == Course.id)
+        .where(ClassSubjectAssignment.id == assignment_id, Course.department_id == dept.id)
+    )
+    assignment = result.scalar_one_or_none()
+    if not assignment:
+        raise HTTPException(status_code=404, detail="Assignment not found in this department.")
+
+    await db.delete(assignment)
+    await db.commit()
+    return {"success": True, "message": "Class assignment removed."}
+
 
 @router.post("/courses/{course_id}/assign")
 async def assign_course_teacher(
@@ -458,7 +807,7 @@ async def get_eligible_school_teachers(
         .join(school_users, school_users.c.user_id == User.id)
         .where(
             school_users.c.school_id == school_id,
-            school_users.c.role.in_([UserRole.TEACHER, UserRole.CLASS_TEACHER]),
+            school_users.c.role.in_([UserRole.TEACHER, UserRole.CLASS_TEACHER, UserRole.HOD]),
             User.id.not_in(existing_ids) if existing_ids else True
         )
     )

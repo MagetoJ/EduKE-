@@ -39,6 +39,22 @@ type EligibleTeacher = {
   email: string
 }
 
+type ClassAssignment = {
+  id: number
+  course_id: number
+  course_name: string
+  course_code: string
+  grade_level: string
+  stream_section: string
+  teacher_id: number
+  teacher_name: string
+  assigned_at: string | null
+}
+
+type AvailableGrade = { grade: string; stream_section: string }
+
+const MAX_SUBJECTS_PER_TEACHER = 2
+
 export default function HodDashboard() {
   const api = useApi()
   const [activeTab, setActiveTab] = useState('overview')
@@ -61,6 +77,21 @@ export default function HodDashboard() {
   const [eligibleTeachers, setEligibleTeachers] = useState<EligibleTeacher[]>([])
   const [selectedEligibleId, setSelectedEligibleId] = useState<string>('')
   const [addingToRoster, setAddingToRoster] = useState(false)
+
+  const [newSubjectName, setNewSubjectName] = useState('')
+  const [newSubjectCode, setNewSubjectCode] = useState('')
+  const [newSubjectGrade, setNewSubjectGrade] = useState('')
+  const [creatingSubject, setCreatingSubject] = useState(false)
+
+  const [classAssignments, setClassAssignments] = useState<ClassAssignment[]>([])
+  const [teacherSubjectCounts, setTeacherSubjectCounts] = useState<Record<number, number>>({})
+  const [availableGrades, setAvailableGrades] = useState<AvailableGrade[]>([])
+  const [assignCourseId, setAssignCourseId] = useState('')
+  const [assignTeacherId, setAssignTeacherId] = useState('')
+  const [assignGradeLevel, setAssignGradeLevel] = useState('')
+  const [assignStreamSection, setAssignStreamSection] = useState('')
+  const [assigningClass, setAssigningClass] = useState(false)
+  const [assignError, setAssignError] = useState('')
 
   const loadDashboard = async () => {
     try {
@@ -88,6 +119,15 @@ export default function HodDashboard() {
 
       const elRes = await api('/api/hod/eligible-teachers'); const elJson = await elRes.json();
       if (elRes.ok) setEligibleTeachers(elJson.data)
+
+      const caRes = await api('/api/hod/class-assignments'); const caJson = await caRes.json();
+      if (caRes.ok) {
+        setClassAssignments(caJson.data)
+        setTeacherSubjectCounts(caJson.teacher_subject_counts || {})
+      }
+
+      const gRes = await api('/api/hod/available-grades'); const gJson = await gRes.json();
+      if (gRes.ok) setAvailableGrades(gJson.data)
     } catch (err) {
       console.error("Dashboard payload mapping error:", err)
     } finally {
@@ -131,6 +171,35 @@ export default function HodDashboard() {
     if (res.ok) loadDashboard()
   }
 
+  const handleCreateSubject = async (e: React.FormEvent) => {
+    e.preventDefault()
+    if (!newSubjectName || !newSubjectCode || !newSubjectGrade) return
+    setCreatingSubject(true)
+    try {
+      const res = await api('/api/hod/courses/create', {
+        method: 'POST',
+        body: JSON.stringify({
+          name: newSubjectName,
+          code: newSubjectCode,
+          grade: newSubjectGrade
+        })
+      })
+      if (res.ok) {
+        setNewSubjectName('')
+        setNewSubjectCode('')
+        setNewSubjectGrade('')
+        await loadDashboard()
+      } else {
+        const json = await res.json()
+        alert(json.detail || 'Failed to create subject.')
+      }
+    } catch (err) {
+      console.error(err)
+    } finally {
+      setCreatingSubject(false)
+    }
+  }
+
   const handleAddToRoster = async () => {
     if (!selectedEligibleId) return
     setAddingToRoster(true)
@@ -143,6 +212,43 @@ export default function HodDashboard() {
       await loadDashboard()
     }
     setAddingToRoster(false)
+  }
+
+  const handleAssignClass = async (e: React.FormEvent) => {
+    e.preventDefault()
+    setAssignError('')
+    if (!assignCourseId || !assignTeacherId || !assignGradeLevel) return
+    setAssigningClass(true)
+    try {
+      const res = await api('/api/hod/class-assignments/assign', {
+        method: 'POST',
+        body: JSON.stringify({
+          course_id: Number(assignCourseId),
+          teacher_id: Number(assignTeacherId),
+          grade_level: assignGradeLevel,
+          stream_section: assignStreamSection || undefined
+        })
+      })
+      const json = await res.json()
+      if (res.ok) {
+        setAssignCourseId('')
+        setAssignTeacherId('')
+        setAssignGradeLevel('')
+        setAssignStreamSection('')
+        await loadDashboard()
+      } else {
+        setAssignError(json.detail || 'Failed to assign class.')
+      }
+    } catch (err) {
+      console.error(err)
+    } finally {
+      setAssigningClass(false)
+    }
+  }
+
+  const handleUnassignClass = async (assignmentId: number) => {
+    const res = await api(`/api/hod/class-assignments/${assignmentId}`, { method: 'DELETE' })
+    if (res.ok) loadDashboard()
   }
 
   if (loading) return <div className="flex justify-center items-center h-64 animate-pulse text-gray-500">Compiling Scoped Department Ledger...</div>
@@ -167,6 +273,7 @@ export default function HodDashboard() {
       <Tabs value={activeTab} onValueChange={setActiveTab} className="space-y-6">
         <TabsList>
           <TabsTrigger value="overview">Syllabus & Assignments</TabsTrigger>
+          <TabsTrigger value="classes">Class Assignments ({classAssignments.length})</TabsTrigger>
           <TabsTrigger value="reports">Progress Reports ({progressReports.length})</TabsTrigger>
           <TabsTrigger value="staff">Staff Workloads</TabsTrigger>
           <TabsTrigger value="escalations">Escalations ({escalations.length})</TabsTrigger>
@@ -175,8 +282,9 @@ export default function HodDashboard() {
         </TabsList>
 
         <TabsContent value="overview" className="space-y-6">
-          <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-            <Card>
+          <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
+            {/* COLUMN 1: Syllabus Progress & Assignments */}
+            <Card className="lg:col-span-2">
               <CardHeader><CardTitle className="flex items-center text-sm font-semibold"><BookOpen className="w-4 h-4 mr-2" />Syllabus Progress & Assignments</CardTitle></CardHeader>
               <CardContent className="space-y-6">
                 {deptInfo?.courses.map(c => (
@@ -203,18 +311,193 @@ export default function HodDashboard() {
                     </div>
                   </div>
                 ))}
+                {(!deptInfo || deptInfo.courses.length === 0) && (
+                  <p className="text-center py-6 text-xs text-gray-400">No subjects mapped to this department yet. Use the form to add one.</p>
+                )}
               </CardContent>
             </Card>
 
+            {/* COLUMN 2: Subject Creation & Comparative Exam Distributions */}
+            <div className="space-y-6">
+              <Card>
+                <CardHeader><CardTitle className="flex items-center text-sm font-semibold"><BookOpen className="w-4 h-4 mr-2" />Add New Subject</CardTitle></CardHeader>
+                <CardContent>
+                  <form onSubmit={handleCreateSubject} className="space-y-3">
+                    <div>
+                      <label className="text-xs font-semibold text-gray-600">Subject Name</label>
+                      <Input
+                        placeholder="e.g., Advanced English"
+                        value={newSubjectName}
+                        onChange={(e) => setNewSubjectName(e.target.value)}
+                        className="text-xs mt-1"
+                        required
+                      />
+                    </div>
+                    <div>
+                      <label className="text-xs font-semibold text-gray-600">Subject Code</label>
+                      <Input
+                        placeholder="e.g., ENG-G8"
+                        value={newSubjectCode}
+                        onChange={(e) => setNewSubjectCode(e.target.value)}
+                        className="text-xs mt-1"
+                        required
+                      />
+                    </div>
+                    <div>
+                      <label className="text-xs font-semibold text-gray-600">Grade Level</label>
+                      <Input
+                        placeholder="e.g., Grade 8"
+                        value={newSubjectGrade}
+                        onChange={(e) => setNewSubjectGrade(e.target.value)}
+                        className="text-xs mt-1"
+                        required
+                      />
+                    </div>
+                    <Button size="sm" type="submit" className="w-full text-xs" disabled={creatingSubject}>
+                      {creatingSubject ? 'Creating...' : 'Create Subject'}
+                    </Button>
+                  </form>
+                </CardContent>
+              </Card>
+
+              <Card>
+                <CardHeader><CardTitle className="flex items-center text-sm font-semibold"><BarChart3 className="w-4 h-4 mr-2" />Comparative Exam Distributions</CardTitle></CardHeader>
+                <CardContent className="space-y-3">
+                  {performance.map(p => (
+                    <div key={p.course_id} className="flex justify-between items-center p-3 border rounded-lg bg-gray-50/50">
+                      <span className="text-xs font-medium text-gray-900">{p.course_name}</span>
+                      <span className={`text-xs font-bold px-2 py-0.5 rounded ${p.average_score >= 50 ? 'bg-green-100 text-green-800' : 'bg-rose-100 text-red-800'}`}>{p.average_score}% Avg</span>
+                    </div>
+                  ))}
+                  {performance.length === 0 && <p className="text-center py-4 text-xs text-gray-400">No exam data recorded yet.</p>}
+                </CardContent>
+              </Card>
+            </div>
+          </div>
+        </TabsContent>
+
+        <TabsContent value="classes" className="space-y-6">
+          <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
+            {/* Assignment form */}
             <Card>
-              <CardHeader><CardTitle className="flex items-center text-sm font-semibold"><BarChart3 className="w-4 h-4 mr-2" />Comparative Exam Distributions</CardTitle></CardHeader>
-              <CardContent className="space-y-3">
-                {performance.map(p => (
-                  <div key={p.course_id} className="flex justify-between items-center p-3 border rounded-lg bg-gray-50/50">
-                    <span className="text-xs font-medium text-gray-900">{p.course_name}</span>
-                    <span className={`text-xs font-bold px-2 py-0.5 rounded ${p.average_score >= 50 ? 'bg-green-100 text-green-800' : 'bg-rose-100 text-red-800'}`}>{p.average_score}% Avg</span>
+              <CardHeader>
+                <CardTitle className="flex items-center text-sm font-semibold"><Users className="w-4 h-4 mr-2" />Assign Subject to Teacher</CardTitle>
+                <p className="text-[11px] text-gray-500">Pick a subject, a class, and a teacher from your roster. Each class can only have one teacher per subject, and a teacher can hold at most {MAX_SUBJECTS_PER_TEACHER} subjects.</p>
+              </CardHeader>
+              <CardContent>
+                <form onSubmit={handleAssignClass} className="space-y-3">
+                  <div>
+                    <label className="text-xs font-semibold text-gray-600">Subject</label>
+                    <select
+                      className="w-full text-xs bg-white border rounded px-2 py-1.5 mt-1"
+                      value={assignCourseId}
+                      onChange={(e) => setAssignCourseId(e.target.value)}
+                      required
+                    >
+                      <option value="">-- Select Subject --</option>
+                      {deptInfo?.courses.map(c => (
+                        <option key={c.id} value={c.id}>{c.name} ({c.code})</option>
+                      ))}
+                    </select>
                   </div>
-                ))}
+
+                  <div>
+                    <label className="text-xs font-semibold text-gray-600">Class / Grade</label>
+                    <Input
+                      list="hod-available-grades"
+                      placeholder="e.g., Grade 8"
+                      value={assignGradeLevel}
+                      onChange={(e) => setAssignGradeLevel(e.target.value)}
+                      className="text-xs mt-1"
+                      required
+                    />
+                    <datalist id="hod-available-grades">
+                      {[...new Set(availableGrades.map(g => g.grade))].map(g => (
+                        <option key={g} value={g} />
+                      ))}
+                    </datalist>
+                  </div>
+
+                  <div>
+                    <label className="text-xs font-semibold text-gray-600">Stream (optional)</label>
+                    <Input
+                      placeholder="e.g., East"
+                      value={assignStreamSection}
+                      onChange={(e) => setAssignStreamSection(e.target.value)}
+                      className="text-xs mt-1"
+                    />
+                  </div>
+
+                  <div>
+                    <label className="text-xs font-semibold text-gray-600">Teacher</label>
+                    <select
+                      className="w-full text-xs bg-white border rounded px-2 py-1.5 mt-1"
+                      value={assignTeacherId}
+                      onChange={(e) => setAssignTeacherId(e.target.value)}
+                      required
+                    >
+                      <option value="">-- Select Teacher --</option>
+                      {roster.map(t => {
+                        const count = teacherSubjectCounts[t.id] || 0
+                        const atCap = count >= MAX_SUBJECTS_PER_TEACHER
+                        return (
+                          <option key={t.id} value={t.id} disabled={atCap}>
+                            {t.name} ({count}/{MAX_SUBJECTS_PER_TEACHER} subjects{atCap ? ' — at limit' : ''})
+                          </option>
+                        )
+                      })}
+                    </select>
+                    {roster.length === 0 && (
+                      <p className="text-[11px] text-gray-400 mt-1">Add teachers to your roster first, in the Staff Workloads tab.</p>
+                    )}
+                  </div>
+
+                  {assignError && <p className="text-[11px] text-rose-600">{assignError}</p>}
+
+                  <Button size="sm" type="submit" className="w-full text-xs" disabled={assigningClass}>
+                    {assigningClass ? 'Assigning...' : 'Assign Class'}
+                  </Button>
+                </form>
+              </CardContent>
+            </Card>
+
+            {/* Current assignments */}
+            <Card className="lg:col-span-2">
+              <CardHeader><CardTitle className="flex items-center text-sm font-semibold"><BookOpen className="w-4 h-4 mr-2" />Current Class Assignments</CardTitle></CardHeader>
+              <CardContent>
+                <div className="overflow-x-auto">
+                  <table className="w-full text-xs text-left border-collapse">
+                    <thead>
+                      <tr className="border-b bg-gray-50/75">
+                        <th className="p-3 font-semibold text-gray-600">Subject</th>
+                        <th className="p-3 font-semibold text-gray-600">Class</th>
+                        <th className="p-3 font-semibold text-gray-600">Teacher</th>
+                        <th className="p-3 font-semibold text-gray-600 text-right">Action</th>
+                      </tr>
+                    </thead>
+                    <tbody className="divide-y">
+                      {classAssignments.map(a => (
+                        <tr key={a.id} className="hover:bg-gray-50/50">
+                          <td className="p-3 font-medium text-gray-900">{a.course_name} ({a.course_code})</td>
+                          <td className="p-3 text-gray-600">{a.grade_level}{a.stream_section ? ` ${a.stream_section}` : ''}</td>
+                          <td className="p-3 text-gray-600">{a.teacher_name}</td>
+                          <td className="p-3 text-right">
+                            <Button size="sm" variant="ghost" className="text-rose-600 hover:text-rose-700" onClick={() => handleUnassignClass(a.id)}>
+                              Unassign
+                            </Button>
+                          </td>
+                        </tr>
+                      ))}
+                      {classAssignments.length === 0 && (
+                        <tr>
+                          <td colSpan={4} className="text-center py-6 text-gray-400 italic">
+                            No classes assigned yet. Use the form to assign a subject to a teacher for a specific class.
+                          </td>
+                        </tr>
+                      )}
+                    </tbody>
+                  </table>
+                </div>
               </CardContent>
             </Card>
           </div>
