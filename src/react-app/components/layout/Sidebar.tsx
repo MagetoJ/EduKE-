@@ -25,7 +25,7 @@ import {
 } from 'lucide-react'
 import { cn } from '../../lib/utils'
 import { useAuth, UserRole } from '../../contexts/AuthContext'
-
+import { Building2 } from 'lucide-react';
 interface NavItem {
   title: string
   href: string

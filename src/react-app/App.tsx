@@ -1,190 +1,305 @@
-import { BrowserRouter as Router, Routes, Route, Navigate } from "react-router";
-import { AuthProvider, useAuth } from "./contexts/AuthContext";
-import { NotificationsProvider } from "./contexts/NotificationsContext";
-import DashboardLayout from "./components/layout/DashboardLayout";
-import Login from "./pages/Login";
-import RegisterSchool from "./pages/RegisterSchool";
-import ForgotPassword from "./pages/ForgotPassword";
-import ResetPassword from "./pages/ResetPassword";
-import VerifyEmail from "./pages/VerifyEmail";
-import ForcePasswordChange from "./pages/ForcePasswordChange";
-import Dashboard from "./pages/Dashboard";
-import Students from "./pages/Students";
-import { StudentProfile } from "./pages/StudentProfile";
-import Schools from "./pages/Schools";
-import SchoolAdmins from "./pages/SchoolAdmins";
-import { SchoolProfile } from "./pages/SchoolProfile";
-import { Reports } from "./pages/Reports";
-import { Settings } from "./pages/Settings";
-import Staff from "./pages/Staff";
-import { StaffProfile } from "./pages/StaffProfile";
-import Communications from "./pages/Communications";
-import Progress from "./pages/Progress";
-import Academics from "./pages/Academics";
-import { CourseDetail } from "./pages/CourseDetail";
-import { AssignmentDetail } from "./pages/AssignmentDetail";
-import { ExamDetail } from "./pages/ExamDetail";
-import Fees from "./pages/Fees";
-import Timetable from "./pages/Timetable";
-import Leave from "./pages/Leave";
-import ParentDashboard from "./pages/ParentDashboard";
-import StudentDashboard from "./pages/StudentDashboard";
-import TeacherDashboard from "./pages/TeacherDashboard";
-import ClassTeacherDashboard from './pages/ClassTeacherDashboard';
-import Subscriptions from "./pages/Subscriptions";
-import CBC from "./pages/CBC";
-import Transport from "./pages/Transport";
-import Boarding from "./pages/Boarding";
-import CurriculumAssessment from "./pages/CurriculumAssessment";
-import SuperAdminDashboard from "./pages/SuperAdminDashboard";
-import TimetableManagerDashboard from "./pages/TimetableManagerDashboard";
-import { useLocation } from "react-router";
-import Subjects from "./pages/Courses";
-import { routeAllowsRole } from "./lib/accessControl";
-import HodDashboard from './pages/HodDashboard';
+import { Link, useLocation } from 'react-router'
+import { 
+  LayoutDashboard, 
+  Users, 
+  GraduationCap, 
+  BookOpen, 
+  Calendar, 
+  MessageSquare,
+  DollarSign,
+  Settings,
+  School,
+  BarChart3,
+  UserCheck,
+  FileText,
+  Clock,
+  CreditCard,
+  Menu,
+  X,
+  Zap,
+  Bus,
+  Home,
+  TrendingUp,
+  Shield,
+  Building2
+} from 'lucide-react'
+import { cn } from "@/lib/utils";
+import { useAuth } from "@/contexts/AuthContext";
 
-// Explicit props typing to eliminate the compilation assignment error
-interface ProtectedRouteProps {
-  children: React.ReactNode;
-  allowedRoles?: string[];
+interface NavItem {
+  title: string
+  href: string
+  icon: React.ComponentType<{ className?: string }>
+  roles: UserRole[]
 }
 
-function ProtectedRoute({ children, allowedRoles }: ProtectedRouteProps) {
-  const { user, isLoading } = useAuth();
-  
-  if (isLoading) {
-    return (
-      <div className="flex items-center justify-center min-h-screen">
-        <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-blue-600"></div>
+const navItems: NavItem[] = [
+  {
+    title: 'Dashboard',
+    href: '/dashboard',
+    icon: LayoutDashboard,
+    roles: ['super_admin', 'admin', 'teacher', 'parent', 'student', 'registrar', 'exam_officer', 'hod', 'timetable_manager', 'transport_manager', 'class_teacher', 'boarding_master', 'cbc_coordinator', 'hr_manager', 'admission_officer', 'nurse']
+  },
+  {
+    title: 'Schools',
+    href: '/dashboard/schools',
+    icon: School,
+    roles: ['super_admin']
+  },
+  {
+    title: 'School Admins',
+    href: '/dashboard/school-admins',
+    icon: UserCheck,
+    roles: ['super_admin']
+  },
+  {
+    title: 'Subscriptions',
+    href: '/dashboard/subscriptions',
+    icon: CreditCard,
+    roles: ['super_admin']
+  },
+  {
+    title: 'Students',
+    href: '/dashboard/students',
+    icon: Users,
+    roles: ['admin', 'teacher', 'registrar', 'exam_officer', 'hod', 'admission_officer', 'class_teacher']
+  },
+  {
+    title: 'Staff',
+    href: '/dashboard/staff',
+    icon: UserCheck,
+    roles: ['admin', 'registrar', 'hod', 'hr_manager']
+  },
+  {
+    title: 'Departments',
+    href: '/dashboard/departments',
+    icon: Building2,
+    roles: ['admin', 'super_admin', 'hr_manager', 'registrar']
+  },
+  {
+    title: 'Academics',
+    href: '/dashboard/academics',
+    icon: BookOpen,
+    roles: ['admin', 'teacher', 'exam_officer', 'hod', 'cbc_coordinator', 'class_teacher']
+  },
+  {
+    title: 'My Progress',
+    href: '/dashboard/progress',
+    icon: BarChart3,
+    roles: ['parent', 'student']
+  },
+  {
+    title: 'Parent Portal',
+    href: '/dashboard/parent',
+    icon: Users,
+    roles: ['parent']
+  },
+  {
+    title: 'My Discipline',
+    href: '/dashboard/student-dashboard',
+    icon: FileText,
+    roles: ['student']
+  },
+  {
+    title: 'Teacher Portal',
+    href: '/dashboard/teacher-dashboard',
+    icon: BookOpen,
+    roles: ['teacher', 'hod', 'class_teacher']
+  },
+  {
+    title: 'Timetable',
+    href: '/dashboard/timetable',
+    icon: Calendar,
+    roles: ['admin', 'teacher', 'parent', 'student', 'timetable_manager', 'registrar', 'hod']
+  },
+  {
+    title: 'Communications',
+    href: '/dashboard/communications',
+    icon: MessageSquare,
+    roles: ['admin', 'teacher', 'parent', 'registrar', 'hod', 'hr_manager', 'admission_officer', 'nurse']
+  },
+  {
+    title: 'Fees',
+    href: '/dashboard/fees',
+    icon: DollarSign,
+    roles: ['admin', 'parent', 'student', 'registrar', 'super_admin']
+  },
+  {
+    title: 'Leave Management',
+    href: '/dashboard/leave',
+    icon: Clock,
+    roles: ['admin', 'teacher', 'hod', 'hr_manager']
+  },
+  {
+    title: 'Reports',
+    href: '/dashboard/reports',
+    icon: BarChart3,
+    roles: ['admin', 'super_admin', 'registrar', 'exam_officer', 'hod', 'hr_manager']
+  },
+  {
+    title: 'CBC',
+    href: '/dashboard/cbc',
+    icon: Zap,
+    roles: ['admin', 'teacher', 'hod', 'cbc_coordinator']
+  },
+  {
+    title: 'Transport',
+    href: '/dashboard/transport',
+    icon: Bus,
+    roles: ['admin', 'transport_manager']
+  },
+  {
+    title: 'Boarding',
+    href: '/dashboard/boarding',
+    icon: Home,
+    roles: ['admin', 'registrar', 'boarding_master']
+  },
+  {
+    title: 'Curriculum Assessment',
+    href: '/dashboard/curriculum-assessment',
+    icon: TrendingUp,
+    roles: ['admin', 'teacher', 'exam_officer', 'hod', 'cbc_coordinator']
+  },
+  {
+    title: 'Timetable Dashboard',
+    href: '/dashboard/timetable-manager',
+    icon: Calendar,
+    roles: ['timetable_manager', 'admin']
+  },
+  {
+    title: 'Platform Admin',
+    href: '/dashboard/platform-admin',
+    icon: Shield,
+    roles: ['super_admin']
+  },
+  {
+    title: 'Settings',
+    href: '/dashboard/settings',
+    icon: Settings,
+    roles: ['admin', 'super_admin']
+  },
+  {
+    title: 'Subjects',
+    href: '/dashboard/subjects',
+    icon: BookOpen,
+    roles: ['admin', 'registrar', 'hod']
+  },
+]
+
+interface SidebarProps {
+  isOpen?: boolean
+  onClose?: () => void
+}
+
+export default function Sidebar({ isOpen = false, onClose }: SidebarProps) {
+  const location = useLocation()
+  const { user } = useAuth()
+
+  if (!user) return null
+
+  const effectiveRoles = user.roles && user.roles.length > 0 ? user.roles : [user.role]
+  const filteredNavItems = navItems.filter(item =>
+    item.roles.some(role => effectiveRoles.includes(role))
+  )
+
+  const NavContent = () => (
+    <>
+      <div className="h-16 flex items-center px-6 border-b border-border bg-card">
+        <div className="h-8 w-8 bg-primary rounded-md flex items-center justify-center mr-3 shadow-sm">
+          <GraduationCap className="w-5 h-5 text-primary-foreground" />
+        </div>
+        <div>
+          <span className="font-bold text-foreground text-lg tracking-tight">EduKE</span>
+        </div>
       </div>
-    );
-  }
-  
-  if (!user) {
-    return <Navigate to="/login" replace />;
-  }
 
-  // Fallback structural safety: If an array of allowed roles is passed and user doesn't match, bounce back safely
-  if (allowedRoles && !allowedRoles.includes(user.role)) {
-    return <Navigate to="/dashboard" replace />;
-  }
-  
-  return <>{children}</>;
-}
+      <nav className="flex-1 py-6 px-3 space-y-1 overflow-y-auto">
+        {filteredNavItems.map((item) => {
+          const Icon = item.icon
+          const isActive = item.href === '/dashboard' 
+            ? location.pathname === '/dashboard'
+            : location.pathname.startsWith(item.href)
 
-function RoleRoute({ children }: { children: React.ReactNode }) {
-  const { user } = useAuth();
-  const location = useLocation();
+          return (
+            <Link
+              key={item.href}
+              to={item.href}
+              onClick={onClose}
+              className={cn(
+                'flex items-center gap-3 px-4 py-3 rounded-md transition-all duration-200 text-sm font-medium group',
+                isActive 
+                  ? 'bg-primary/10 text-primary shadow-sm border border-primary/20' 
+                  : 'text-muted-foreground hover:bg-accent hover:text-accent-foreground'
+              )}
+            >
+              <Icon className={cn(
+                'w-5 h-5 transition-colors',
+                isActive ? 'text-primary' : 'text-muted-foreground/70 group-hover:text-foreground'
+              )} />
+              {item.title}
+            </Link>
+          )
+        })}
+      </nav>
 
-  if (!user) return <Navigate to="/login" replace />;
-
-  const effectiveRoles = user.roles && user.roles.length > 0 ? user.roles : [user.role];
-  if (!routeAllowsRole(location.pathname, effectiveRoles)) {
-    return <Navigate to="/dashboard" replace />;
-  }
-
-  return <>{children}</>;
-}
-
-function AppRoutes() {
-  const { user } = useAuth();
-  
-  if (!user) {
-    return (
-      <Routes>
-        <Route path="/login" element={<Login />} />
-        <Route path="/register-school" element={<RegisterSchool />} />
-        <Route path="/forgot-password" element={<ForgotPassword />} />
-        <Route path="/reset-password" element={<ResetPassword />} />
-        <Route path="/verify-email" element={<VerifyEmail />} />
-        <Route path="*" element={<Navigate to="/login" />} />
-      </Routes>
-    );
-  }
-
-  // Force password change if required
-  if (user.must_change_password) {
-    return (
-      <Routes>
-        <Route path="/change-password" element={<ForcePasswordChange />} />
-        <Route path="*" element={<Navigate to="/change-password" />} />
-      </Routes>
-    );
-  }
+      <div className="p-4 border-t border-border bg-muted/30">
+        {user.schoolName && (
+          <div className="flex items-center gap-2 text-xs text-muted-foreground">
+            <School className="w-3 h-3" />
+            <span className="truncate font-medium">{user.schoolName}</span>
+          </div>
+        )}
+      </div>
+    </>
+  )
 
   return (
-    <Routes>
-      <Route path="/change-password" element={<ForcePasswordChange />} />
-      <Route path="/login" element={<Navigate to="/dashboard" replace />} />
-      <Route path="/" element={<Navigate to="/dashboard" replace />} />
-      
-      <Route
-        path="/dashboard"
-        element={
-          <ProtectedRoute>
-            <DashboardLayout />
-          </ProtectedRoute>
-        }
+    <>
+      <aside className="w-64 bg-card border-r border-border flex-col hidden md:flex shrink-0 shadow-sm">
+        <NavContent />
+      </aside>
+
+      {isOpen && (
+        <div className="fixed inset-0 z-40 md:hidden">
+          <div 
+            className="absolute inset-0 bg-black/60 backdrop-blur-sm transition-opacity duration-300"
+            onClick={onClose}
+          />
+        </div>
+      )}
+
+      <div 
+        className={cn(
+          'fixed left-0 top-0 h-full w-64 bg-card flex flex-col shadow-lg z-50 md:hidden transition-transform duration-300 ease-in-out',
+          isOpen ? 'translate-x-0' : '-translate-x-full'
+        )}
       >
-        {/* Main Dashboard Fallback Landing Component */}
-        <Route index element={<Dashboard />} />
-        
-        {/* Core HOD App Route Setup */}
-        <Route 
-          path="hod" 
-          element={
-            <ProtectedRoute allowedRoles={['hod']}>
-              <HodDashboard />
-            </ProtectedRoute>
-          } 
-        />
-        
-        {/* Remaining Core Functional Architecture Sub-Routes */}
-        <Route path="timetable-manager" element={<TimetableManagerDashboard />} />
-        <Route path="subjects" element={<RoleRoute><Subjects /></RoleRoute>} />
-        <Route path="students" element={<Students />} />
-        <Route path="students/:id" element={<StudentProfile />} />
-        <Route path="schools" element={<Schools />} />
-        <Route path="schools/:id" element={<SchoolProfile />} />
-        <Route path="school-admins" element={<SchoolAdmins />} />
-        <Route path="reports" element={<Reports />} />
-        <Route path="staff" element={<Staff />} />
-        <Route path="staff/:id" element={<StaffProfile />} />
-        <Route path="communications" element={<Communications />} />
-        <Route path="progress" element={<Progress />} />
-        <Route path="academics" element={<Academics />} />
-        <Route path="academics/courses/:id" element={<CourseDetail />} />
-        <Route path="academics/assignments/:id" element={<AssignmentDetail />} />
-        <Route path="academics/exams/:id" element={<ExamDetail />} />
-        <Route path="fees" element={<Fees />} />
-        <Route path="timetable" element={<Timetable />} />
-        <Route path="leave" element={<Leave />} />
-        <Route path="subscriptions" element={<Subscriptions />} />
-        <Route path="settings" element={<Settings />} />
-        <Route path="parent" element={<ParentDashboard />} />
-        <Route path="student-dashboard" element={<StudentDashboard />} />
-        <Route path="teacher-dashboard" element={<TeacherDashboard />} />
-        <Route path="class-teacher" element={<ClassTeacherDashboard />} />
-        <Route path="cbc" element={<CBC />} />
-        <Route path="transport" element={<Transport />} />
-        <Route path="boarding" element={<Boarding />} />
-        <Route path="curriculum-assessment" element={<CurriculumAssessment />} />
-        <Route path="platform-admin" element={<SuperAdminDashboard />} />
-      </Route>
-      
-      <Route path="*" element={<Navigate to="/dashboard" replace />} />
-    </Routes>
-  );
+        <NavContent />
+      </div>
+    </>
+  )
 }
 
-export default function App() {
+export function MobileMenuButton({ onClick }: { onClick: () => void }) {
   return (
-    <AuthProvider>
-      <NotificationsProvider>
-        <Router>
-          <AppRoutes />
-        </Router>
-      </NotificationsProvider>
-    </AuthProvider>
-  );
+    <button
+      onClick={onClick}
+      className="md:hidden inline-flex items-center justify-center p-2 rounded-md text-foreground hover:bg-accent transition-colors"
+      aria-label="Toggle menu"
+    >
+      <Menu className="w-6 h-6" />
+    </button>
+  )
+}
+
+export function MobileMenuClose({ onClick }: { onClick: () => void }) {
+  return (
+    <button
+      onClick={onClick}
+      className="inline-flex items-center justify-center p-2 rounded-md text-foreground hover:bg-accent transition-colors"
+      aria-label="Close menu"
+    >
+      <X className="w-6 h-6" />
+    </button>
+  )
 }

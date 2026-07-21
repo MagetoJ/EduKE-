@@ -7,9 +7,9 @@
     "module": "ESNext",
     "skipLibCheck": true,
 
-    "baseUrl": ".",
+   "baseUrl": ".",
     "paths": {
-      "@/*": ["./src/*"]
+      "@/*": ["src/react-app/*"]
     },
 
     /* Bundler mode */
