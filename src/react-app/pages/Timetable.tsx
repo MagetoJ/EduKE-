@@ -47,6 +47,18 @@ type TimetableEntry = {
 
 type Course  = { id: string; name: string } // Changed from type Subject
 type Teacher = { id: string; name: string }
+// HOD-approved (subject, teacher) pair for a specific grade+stream, pulled from
+// ClassSubjectAssignment -- this is what the builder picks from so the timetable
+// can't drift from what the HOD already assigned.
+type ClassAssignment = {
+  id: string
+  course_id: string
+  course_name: string
+  teacher_id: string
+  teacher_name: string
+  grade_level: string
+  stream_section: string
+}
 type TimePeriod = {
   id: string
   name: string
@@ -141,6 +153,11 @@ export default function Timetable() {
   const [courses,  setCourses]  = useState<Course[]>([])
   const [teachers, setTeachers] = useState<Teacher[]>([])
   const [periods,  setPeriods]  = useState<TimePeriod[]>([])
+
+  // HOD-approved subject/teacher pairs for whatever grade+section is
+  // currently selected in the Add/Edit form. Empty until a grade is picked.
+  const [classAssignments, setClassAssignments] = useState<ClassAssignment[]>([])
+  const [isLoadingAssignments, setIsLoadingAssignments] = useState(false)
 
   const [isLoading,  setIsLoading]  = useState(true)
   const [error,      setError]      = useState<string | null>(null)
@@ -239,9 +256,50 @@ export default function Timetable() {
     load()
   }, [api, user, selectedGrade, selectedSection])
 
+  // ── Class-assignment lookup ───────────────────────────────────
+  // Whenever the Add/Edit form's grade or section changes, pull the
+  // HOD-approved (subject, teacher) pairs for that exact class so the
+  // dropdown below only offers choices that can't drift from what the
+  // HOD already assigned.
+  useEffect(() => {
+    if (!isAddDialogOpen && !isEditDialogOpen) return
+    if (!formData.grade) { setClassAssignments([]); return }
+
+    let cancelled = false
+    const loadAssignments = async () => {
+      setIsLoadingAssignments(true)
+      try {
+        const params = new URLSearchParams({
+          grade_level: formData.grade,
+          stream_section: formData.class_section || '',
+        })
+        const res = await api(`/api/timetable/class-assignments?${params.toString()}`)
+        if (!res.ok) throw new Error('Failed to fetch class assignments')
+        const data = await res.json()
+        if (!cancelled) setClassAssignments((data.data || []).map((a: ClassAssignment) => ({
+          ...a, id: String(a.id), course_id: String(a.course_id), teacher_id: String(a.teacher_id),
+        })))
+      } catch {
+        if (!cancelled) setClassAssignments([])
+      } finally {
+        if (!cancelled) setIsLoadingAssignments(false)
+      }
+    }
+    loadAssignments()
+    return () => { cancelled = true }
+  }, [api, formData.grade, formData.class_section, isAddDialogOpen, isEditDialogOpen])
+
   // ── Form helpers ─────────────────────────────────────────────
   const handleFormChange = (field: keyof FormData, value: string | boolean) =>
     setFormData(prev => ({ ...prev, [field]: value }))
+
+  // Selecting an assignment sets course_id AND teacher_id together, atomically,
+  // so the two can never end up mismatched from what the HOD assigned.
+  const handleAssignmentPick = (assignmentId: string) => {
+    const picked = classAssignments.find(a => a.id === assignmentId)
+    if (!picked) return
+    setFormData(prev => ({ ...prev, course_id: picked.course_id, teacher_id: picked.teacher_id }))
+  }
 
   const handlePeriodChange = (field: keyof PeriodFormData, value: string | boolean) =>
     setPeriodFormData(prev => ({ ...prev, [field]: value }))
@@ -268,13 +326,14 @@ export default function Timetable() {
       const teacher = teachers.find(t => String(t.id) === String(formData.teacher_id))
 
       const payload = {
-        course_id: parseInt(formData.course_id),
+        subject_id: parseInt(formData.course_id),
         teacher_id: formData.teacher_id && formData.teacher_id !== '__none' ? parseInt(formData.teacher_id) : null,
         day_of_week: formData.day_of_week,
         start_time: period?.start_time || '',
         end_time: period?.end_time || '',
         room: formData.classroom,
-        grade_level: formData.grade
+        grade_level: formData.grade,
+        stream_section: formData.class_section || ''
       }
 
       const res  = await api('/api/timetable', { method: 'POST', body: JSON.stringify(payload) })
@@ -322,13 +381,14 @@ export default function Timetable() {
       const teacher = teachers.find(t => String(t.id) === String(formData.teacher_id))
 
       const payload = {
-        course_id: parseInt(formData.course_id),
+        subject_id: parseInt(formData.course_id),
         teacher_id: formData.teacher_id && formData.teacher_id !== '__none' ? parseInt(formData.teacher_id) : null,
         day_of_week: formData.day_of_week,
         start_time: period?.start_time || '',
         end_time: period?.end_time || '',
         room: formData.classroom,
-        grade_level: formData.grade
+        grade_level: formData.grade,
+        stream_section: formData.class_section || ''
       }
 
       const res  = await api(`/api/timetable/${formData.id}`, { method: 'PUT', body: JSON.stringify(payload) })
@@ -530,34 +590,8 @@ export default function Timetable() {
         </div>
       </div>
 
-      {/* Course */}
-      <div className="space-y-1">
-        <Label>Course / Subject</Label>
-        <Select value={formData.course_id} onValueChange={v => handleFormChange('course_id', v)}>
-          <SelectTrigger><SelectValue placeholder="Select course" /></SelectTrigger>
-          <SelectContent>
-            {courses.map(c => <SelectItem key={c.id} value={String(c.id)}>{c.name}</SelectItem>)}
-          </SelectContent>
-        </Select>
-      </div>
-
-      {/* Teacher */}
-      <div className="space-y-1">
-        <Label>Teacher</Label>
-        <Select value={formData.teacher_id} onValueChange={v => handleFormChange('teacher_id', v)}>
-          <SelectTrigger>
-            <SelectValue placeholder={teachers.length === 0 ? 'No teachers available' : 'Select teacher'} />
-          </SelectTrigger>
-          <SelectContent>
-            {teachers.length === 0
-              ? <SelectItem disabled value="__none">No teachers available</SelectItem>
-              : teachers.map(t => <SelectItem key={t.id} value={String(t.id)}>{t.name}</SelectItem>)
-            }
-          </SelectContent>
-        </Select>
-      </div>
-
-      {/* Grade + Section */}
+      {/* Grade + Section — pick these first, since they determine which
+          HOD-approved subject/teacher pairs are available below */}
       <div className="grid grid-cols-2 gap-3">
         <div className="space-y-1">
           <Label>Grade</Label>
@@ -577,6 +611,62 @@ export default function Timetable() {
           />
         </div>
       </div>
+
+      {/* Subject + Teacher */}
+      {formData.grade && classAssignments.length > 0 ? (
+        <div className="space-y-1">
+          <Label>Subject (HOD-assigned)</Label>
+          <Select
+            value={classAssignments.find(a => a.course_id === formData.course_id && a.teacher_id === formData.teacher_id)?.id || ''}
+            onValueChange={handleAssignmentPick}
+          >
+            <SelectTrigger><SelectValue placeholder="Select subject" /></SelectTrigger>
+            <SelectContent>
+              {classAssignments.map(a => (
+                <SelectItem key={a.id} value={a.id}>{a.course_name} — {a.teacher_name}</SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
+          <p className="text-[11px] text-slate-500">
+            Only subjects the HOD has assigned a teacher to for this class are shown, so the timetable
+            can't drift from the department's assignment.
+          </p>
+        </div>
+      ) : (
+        <>
+          {formData.grade && !isLoadingAssignments && (
+            <p className="text-[11px] text-amber-600 -mb-1">
+              No HOD-approved subject assignments found for this class yet — pick manually below.
+            </p>
+          )}
+          {/* Course */}
+          <div className="space-y-1">
+            <Label>Course / Subject</Label>
+            <Select value={formData.course_id} onValueChange={v => handleFormChange('course_id', v)}>
+              <SelectTrigger><SelectValue placeholder="Select course" /></SelectTrigger>
+              <SelectContent>
+                {courses.map(c => <SelectItem key={c.id} value={String(c.id)}>{c.name}</SelectItem>)}
+              </SelectContent>
+            </Select>
+          </div>
+
+          {/* Teacher */}
+          <div className="space-y-1">
+            <Label>Teacher</Label>
+            <Select value={formData.teacher_id} onValueChange={v => handleFormChange('teacher_id', v)}>
+              <SelectTrigger>
+                <SelectValue placeholder={teachers.length === 0 ? 'No teachers available' : 'Select teacher'} />
+              </SelectTrigger>
+              <SelectContent>
+                {teachers.length === 0
+                  ? <SelectItem disabled value="__none">No teachers available</SelectItem>
+                  : teachers.map(t => <SelectItem key={t.id} value={String(t.id)}>{t.name}</SelectItem>)
+                }
+              </SelectContent>
+            </Select>
+          </div>
+        </>
+      )}
 
       {/* Classroom */}
       <div className="space-y-1">

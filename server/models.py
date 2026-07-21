@@ -298,6 +298,12 @@ class TimetableSlot(Base):
     end_time = Column(String(5))   # HH:MM (24h)
     room = Column(String(50))
     grade_level = Column(String(20)) # e.g., "Grade 1"
+    # Stream/section within the grade (e.g., "East", "A"). Default "" (not
+    # nullable) for the same reason ClassSubjectAssignment.stream_section is
+    # non-nullable: Postgres treats NULL != NULL, which would silently defeat
+    # conflict checks for un-streamed grades. "" means "whole grade / no streams".
+    stream_section = Column(String(20), nullable=False, default="")
+
 
     # Relationships
     school = relationship("School", back_populates="timetable_slots")
