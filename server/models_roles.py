@@ -10,6 +10,7 @@ class AcademicDepartment(Base):
     school_id = Column(Integer, ForeignKey("schools.id", ondelete="CASCADE"), nullable=False)
     name = Column(String(100), nullable=False)
     code = Column(String(20), nullable=False)
+    description = Column(String(500), nullable=True)
     hod_id = Column(Integer, ForeignKey("users.id", ondelete="SET NULL"), nullable=True)
 
     # Relationships

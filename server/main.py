@@ -48,6 +48,7 @@ from curriculum import router as curriculum_router
 from class_teacher import router as class_teacher_router
 from sqlalchemy import delete
 from teacher_progress import router as teacher_progress_router
+from departments_admin import router as departments_admin_router
 # Setup logging
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
@@ -90,6 +91,7 @@ app.include_router(courses_router, prefix="/api", dependencies=[Depends(get_curr
 app.include_router(curriculum_router, dependencies=[Depends(get_current_user)])
 app.include_router(class_teacher_router, dependencies=[Depends(get_current_user)])
 app.include_router(hod_router, dependencies=[Depends(get_current_user)])
+app.include_router(departments_admin_router, dependencies=[Depends(get_current_user)])
 app.include_router(teacher_progress_router)
 
 # ==================== EXCEPTION HANDLERS ====================

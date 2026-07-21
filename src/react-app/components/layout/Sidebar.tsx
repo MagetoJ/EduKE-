@@ -21,11 +21,11 @@ import {
   Home,
   TrendingUp,
   Shield,
-  ClipboardList
+  ClipboardList,
+  Building2
 } from 'lucide-react'
 import { cn } from '../../lib/utils'
 import { useAuth, UserRole } from '../../contexts/AuthContext'
-import { Building2 } from 'lucide-react';
 interface NavItem {
   title: string
   href: string
@@ -177,6 +177,12 @@ const navItems: NavItem[] = [
     href: '/dashboard/subjects',
     icon: BookOpen,
     roles: ['admin', 'registrar', 'hod']
+  },
+  {
+    title: 'Departments',
+    href: '/dashboard/departments',
+    icon: Building2,
+    roles: ['admin', 'super_admin']
   },
 
 ]

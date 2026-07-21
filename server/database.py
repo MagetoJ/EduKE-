@@ -30,7 +30,21 @@ else:
 if DATABASE_URL.startswith("sqlite"):
     engine = create_async_engine(DATABASE_URL, connect_args={"check_same_thread": False})
 else:
-    engine = create_async_engine(DATABASE_URL) # Postgres runs perfectly with just the URL
+    engine = create_async_engine(
+        DATABASE_URL,
+        pool_pre_ping=True,   # test each connection with a lightweight ping before using it;
+                              # transparently discards and replaces connections the server/network
+                              # has silently closed while idle in the pool
+        pool_recycle=180,     # proactively recycle connections older than this many seconds, so
+                              # they never live long enough to hit Render's / the network's idle
+                              # connection timeout in the first place
+        pool_size=5,
+        max_overflow=5,
+        connect_args={
+            "timeout": 10,          # fail fast on connect instead of hanging
+            "command_timeout": 30,  # fail fast on a hung query instead of hanging forever
+        },
+    )
 # ---------------
 
 async_session_maker = async_sessionmaker(engine, class_=AsyncSession, expire_on_commit=False)
