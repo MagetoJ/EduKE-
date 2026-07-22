@@ -1,8 +1,8 @@
 from fastapi import APIRouter, Depends, HTTPException, status
 from typing import List, Optional
 from pydantic import BaseModel
-from server.auth import get_current_user # Follow existing authentication dependency patterns
-from server.database import get_db_connection
+from auth import get_current_user # Follow existing authentication dependency patterns
+from database import get_db_connection
 
 router = APIRouter(prefix="/api/special-education", tags=["Special Education Module"])
 

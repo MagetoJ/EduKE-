@@ -5,6 +5,7 @@ from datetime import datetime, timedelta
 import enum
 from database import Base
 from models_class_teacher import ClassProgressReport, ProgressReportComment
+from sqlalchemy import Column, Integer, String, Boolean, DateTime, ForeignKey, Text, Float, Enum, func
 
 # ==================== ENUMS (Borrowed from SmartBiz) ====================
 
@@ -81,7 +82,7 @@ class School(Base):
     address = Column(Text)
     status = Column(String(20), default='active') # active, suspended, pending
     is_manually_blocked = Column(Boolean, default=False)
-    
+    classes = relationship("SchoolClass", back_populates="school", cascade="all, delete-orphan")
     # Subscription fields (SmartBiz pattern)
     subscription_plan = Column(String(20), default='trial') # trial, basic, professional
     trial_ends_at = Column(DateTime, default=lambda: datetime.utcnow() + timedelta(days=14))
@@ -806,3 +807,15 @@ class Notification(Base):
 
     school = relationship("School")
     user   = relationship("User")
+    
+class SchoolClass(Base):
+    __tablename__ = "school_classes"
+
+    id = Column(Integer, primary_key=True, index=True)
+    school_id = Column(Integer, ForeignKey("schools.id", ondelete="CASCADE"), nullable=False)
+    grade_level = Column(String(50), nullable=False)
+    stream_section = Column(String(50), nullable=False)
+    academic_year = Column(String(20), default="2026")
+    created_at = Column(DateTime(timezone=True), server_default=func.now())
+
+    school = relationship("School", back_populates="classes")

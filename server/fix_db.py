@@ -7,8 +7,8 @@ from sqlalchemy import text
 os.environ["DATABASE_URL"] = "postgresql+asyncpg://eduke_396b_user:t3CHVYbXLR9IRSo6uMooVMXZJQuZA6e7@dpg-d8gsheernols73c3k420-a.oregon-postgres.render.com/eduke_396b?ssl=require"
 
 try:
-    from server.database import engine
-    from server.models import Base
+    from database import engine
+    from models import Base
 except ImportError:
     from database import engine
     from models import Base

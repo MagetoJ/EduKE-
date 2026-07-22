@@ -14,7 +14,7 @@ os.environ["DATABASE_URL"] = "postgresql+asyncpg://eduke_396b_user:t3CHVYbXLR9IR
 try:
     from seed_superadmin import create_superadmin
 except ImportError:
-    from server.seed_superadmin import create_superadmin
+    from seed_superadmin import create_superadmin
 
 async def run_seeding():
     print("Seeding initial administrator accounts to the production database...")

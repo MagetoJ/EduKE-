@@ -396,6 +396,7 @@ async def get_timetable_slots(
 
 @router.post("", response_model=dict)
 @router.post("/", response_model=dict)
+@router.post("/slots")
 async def create_timetable_slot(
     data: TimetableSlotCreate,
     db: AsyncSession = Depends(get_db),
