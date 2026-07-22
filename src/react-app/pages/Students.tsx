@@ -24,6 +24,7 @@ import { useApi } from '../contexts/AuthContext'
 import { useNavigate } from 'react-router'
 import { Badge } from '../components/ui/badge'
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from '../components/ui/dropdown-menu'
+import { BulkOnboardDialog } from '../components/BulkOnboardDialog'
 
 type Student = {
   id: string;
@@ -308,6 +309,10 @@ export default function Students() {
               <Filter className="w-4 h-4" />
               Filter
             </Button>
+            <BulkOnboardDialog
+              entityTypes={['students', 'teachers', 'staff']}
+              onComplete={fetchStudents}
+            />
             <Dialog open={isEnrollDialogOpen} onOpenChange={handleEnrollDialogChange}>
               <DialogTrigger asChild>
                 <Button size="sm" className="gap-2">

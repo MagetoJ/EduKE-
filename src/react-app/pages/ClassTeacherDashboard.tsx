@@ -4,6 +4,7 @@ import { Button } from '../components/ui/button';
 import { Badge } from '../components/ui/badge';
 import { ClipboardList, FileText, Landmark, ShieldAlert } from 'lucide-react';
 import { useApi } from '../contexts/AuthContext';
+import { BulkOnboardDialog } from '../components/BulkOnboardDialog';
 
 interface Student {
   id: number;
@@ -30,6 +31,10 @@ export default function ClassTeacherDashboard() {
   const [escalationDetails, setEscalationDetails] = useState('');
 
   useEffect(() => {
+    fetchManagedStream();
+  }, [api]);
+
+  const fetchManagedStream = () => {
     // Corrected target endpoint link
     api('/api/class-teacher/my-managed-stream')
       .then(res => res.json())
@@ -44,7 +49,7 @@ export default function ClassTeacherDashboard() {
         });
         setAttendance(initialAttendance);
       });
-  }, [api]);
+  };
 
   const handleAttendanceChange = (studentId: number, status: string) => {
     setAttendance(prev => ({ ...prev, [studentId]: status }));
@@ -113,11 +118,18 @@ export default function ClassTeacherDashboard() {
 
   return (
     <div className="space-y-6 p-6">
-      <div>
-        <h1 className="text-3xl font-bold text-slate-900">Class Teacher Workspace</h1>
-        <p className="text-slate-600">
-          Holistic tracking environment for {classDetails ? `${classDetails.grade_level} ${classDetails.stream_section}` : 'Loading assigned stream...'}
-        </p>
+      <div className="flex justify-between items-start gap-4">
+        <div>
+          <h1 className="text-3xl font-bold text-slate-900">Class Teacher Workspace</h1>
+          <p className="text-slate-600">
+            Holistic tracking environment for {classDetails ? `${classDetails.grade_level} ${classDetails.stream_section}` : 'Loading assigned stream...'}
+          </p>
+        </div>
+        <BulkOnboardDialog
+          entityTypes={['students']}
+          triggerLabel="Bulk Import Students"
+          onComplete={fetchManagedStream}
+        />
       </div>
 
       <div className="flex gap-2 border-b pb-2">
