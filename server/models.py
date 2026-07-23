@@ -145,6 +145,16 @@ class Student(Base):
     credit_transactions = relationship("CreditTransaction", back_populates="student")
 
 # ==================== ASSET MANAGEMENT (Borrowed from SmartBiz) ====================
+class Department(Base):
+    __tablename__ = "departments"
+
+    id = Column(Integer, primary_key=True, index=True)
+    school_id = Column(Integer, ForeignKey("schools.id"), nullable=False)
+    name = Column(String, nullable=False)
+    
+__table_args__ = (
+        UniqueConstraint('school_id', 'name', name='_school_department_name_uc'),
+    )
 
 class Asset(Base):
     """School assets like textbooks/equipment (Adapted from SmartBiz Product)"""

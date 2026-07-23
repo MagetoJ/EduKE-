@@ -31,10 +31,11 @@ async def seed_kenyan_departments_and_subjects():
         # 2. Map Kenyan curriculum subjects to their designated Department ID
         subject_mapping = {
             "MATH": ["Mathematics", "Computer Studies"],
-            "LANG": ["English", "Kiswahili", "French", "German"],
-            "SCI": ["Chemistry", "Physics", "Biology"],
-            "HUM": ["History & Government", "Geography", "CRE", "IRE", "HRE"],
-            "TECH": ["Agriculture", "Business Studies", "Home Science", "Art & Design", "Music"]
+            "LANG": ["English", "Kiswahili", "Literature in English", "French", "German", "Arabic", "Kenyan Sign Language"],
+            "SCI": ["Biology", "Chemistry", "Physics", "Integrated Science"],
+            "HUM": ["History & Government", "Geography", "CRE", "IRE", "HRE", "Social Studies"],
+            "TECH": ["Agriculture", "Business Studies", "Home Science", "Art & Design", "Music",
+                     "Woodwork", "Metalwork", "Building Construction", "Physical Education"]
         }
 
         for dept_code, subjects in subject_mapping.items():

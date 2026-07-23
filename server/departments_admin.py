@@ -3,6 +3,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select, update
 from sqlalchemy.orm import selectinload
 from typing import Optional
+from sqlalchemy import select, func
 from pydantic import BaseModel
 
 from database import get_db
@@ -84,13 +85,28 @@ async def create_department(
 ):
     target_school_id = _resolve_school_id(current_school, current_user, school_id)
 
-    if not payload.name.strip():
+    clean_name = payload.name.strip()
+    if not clean_name:
         raise HTTPException(status_code=400, detail="Department name is required")
+
+    # --- NEW: Duplicate Department Check ---
+    existing_check = await db.execute(
+        select(AcademicDepartment).where(
+            AcademicDepartment.school_id == target_school_id,
+            func.lower(AcademicDepartment.name) == clean_name.lower()
+        )
+    )
+    if existing_check.scalar_one_or_none():
+        raise HTTPException(
+            status_code=400, 
+            detail=f"A department named '{clean_name}' already exists in this school."
+        )
+    # ---------------------------------------
 
     dept = AcademicDepartment(
         school_id=target_school_id,
-        name=payload.name.strip(),
-        code=(payload.code or "").strip() or payload.name.strip()[:6].upper(),
+        name=clean_name,
+        code=(payload.code or "").strip() or clean_name[:6].upper(),
         description=payload.description,
         hod_id=None,
     )

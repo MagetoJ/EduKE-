@@ -194,10 +194,11 @@ async def get_department_details(
     # gets swept into the right department.
     link_keywords_by_code = {
         "MATH": ["Mathematics", "Computer Studies", "Computer"],
-        "LANG": ["English", "Kiswahili", "French", "German", "Languages"],
-        "SCI": ["Chemistry", "Physics", "Biology", "Science"],
-        "HUM": ["History", "Geography", "CRE", "IRE", "Humanities"],
-        "TECH": ["Agriculture", "Business", "Home Science", "Music", "Technical"]
+        "LANG": ["English", "Kiswahili", "Literature", "French", "German", "Arabic", "Sign Language", "Languages"],
+        "SCI": ["Chemistry", "Physics", "Biology", "Integrated Science", "Science"],
+        "HUM": ["History", "Geography", "CRE", "IRE", "HRE", "Social Studies", "Humanities"],
+        "TECH": ["Agriculture", "Business", "Home Science", "Music", "Art", "Woodwork", "Metalwork",
+                 "Building Construction", "Physical Education", "Technical"]
     }
 
     # CANONICAL_SUBJECTS is the authoritative subject list per department --
@@ -205,12 +206,16 @@ async def get_department_details(
     # HOD's dashboard) for that department, regardless of whether the school
     # ever got around to creating them. If a subject in this list has no
     # matching Course row in the department yet, we provision a starter one.
+    # This list mirrors the standard Kenyan CBC / 8-4-4 subject spread per
+    # department so a newly-provisioned department shows up fully stocked
+    # instead of empty.
     canonical_subjects_by_code = {
         "MATH": ["Mathematics", "Computer Studies"],
-        "LANG": ["English", "Kiswahili", "French", "German"],
-        "SCI": ["Chemistry", "Physics", "Biology"],
-        "HUM": ["History", "Geography", "CRE"],
-        "TECH": ["Agriculture", "Business Studies", "Home Science", "Music"]
+        "LANG": ["English", "Kiswahili", "Literature in English", "French", "German", "Arabic", "Kenyan Sign Language"],
+        "SCI": ["Biology", "Chemistry", "Physics", "Integrated Science"],
+        "HUM": ["History and Government", "Geography", "CRE", "IRE", "HRE", "Social Studies"],
+        "TECH": ["Agriculture", "Business Studies", "Home Science", "Music", "Art and Design",
+                 "Woodwork", "Metalwork", "Building Construction", "Physical Education"]
     }
 
     if dept.code in link_keywords_by_code:

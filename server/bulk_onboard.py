@@ -1,49 +1,17 @@
-"""
-Bulk onboarding of teachers/staff/students from a CSV or XLSX file, with
-flexible column-header detection (see utils/header_mapper.py).
-
-Rewritten from scratch against the REAL schema -- the original version of
-this file assumed things that don't exist in this codebase:
-  - sync `Session` / `db.query(...)` -- this app is async SQLAlchemy throughout.
-  - a `SchoolUser` class -- role membership actually lives in the `school_users`
-    Table (an association table, not a mapped class).
-  - `SchoolClass.name` / `.stream` -- the real columns are `grade_level` and
-    `stream_section`.
-  - `Student.class_id` / `Student.is_active` -- Student doesn't have either;
-    it has `grade` + `stream_section` directly, and `status` instead of
-    `is_active`.
-  - no authentication or tenant scoping at all -- `school_id` was a raw path
-    parameter, so anyone who could reach the URL could onboard fake users
-    into ANY school by just changing the number in the path. Fixed by using
-    get_current_school (derived from the caller's own token) instead.
-
-Permissions: admins can onboard any entity type, unrestricted. Class teachers
-may only onboard students, and only into their own assigned class -- the
-grade/stream from the file is ignored and overridden by their assignment, so
-they can't (accidentally or otherwise) onboard a student into a class that
-isn't theirs.
-"""
-
-import re
 import io
+import re
 from typing import Optional
 
 import pandas as pd
-from fastapi import APIRouter, Depends, HTTPException, UploadFile, File
-from sqlalchemy.ext.asyncio import AsyncSession
-from sqlalchemy import select, insert as sa_insert
-
+from auth import get_current_school, get_effective_roles, get_password_hash, require_roles
 from database import get_db
-from models import User, Student, SchoolClass, UserRole, school_users
-from utils.header_mapper import map_dataframe_headers
-from auth import get_current_school, require_roles, get_effective_roles, get_password_hash
-
-# NOTE: this import assumes models_roles.py / ClassTeacherAssignment exist in
-# your project (they do in the reference version of this codebase). If they
-# don't, delete this import and the `_resolve_class_lock` function's body
-# will need a different way to find "this teacher's own class" -- tell me
-# and I'll adjust.
+from fastapi import APIRouter, Depends, File, HTTPException, UploadFile
+from models import SchoolClass, Student, User, UserRole, school_users
 from models_roles import ClassTeacherAssignment
+from sqlalchemy import insert as sa_insert
+from sqlalchemy import select
+from sqlalchemy.ext.asyncio import AsyncSession
+from utils.header_mapper import map_dataframe_headers
 
 router = APIRouter(prefix="/api/bulk-onboard", tags=["Bulk Onboarding"])
 
@@ -92,8 +60,6 @@ async def bulk_onboard_entities(
     if entity_type == "students":
         locked_grade, locked_stream = await _resolve_class_lock(db, current_user, current_school.id)
     else:
-        # Onboarding teachers/staff is admin-only -- a class teacher has no
-        # business creating other staff accounts.
         effective_roles = await get_effective_roles(db, current_user.id, current_school.id)
         if "admin" not in effective_roles and not getattr(current_user, "is_super_admin", False):
             raise HTTPException(status_code=403, detail="Only admins can onboard teachers or staff")
@@ -129,23 +95,24 @@ async def bulk_onboard_entities(
         stream_key = (c.stream_section or "").strip().lower()
         if stream_key:
             class_map[f"{grade_key}-{stream_key}"] = c
-        class_map.setdefault(grade_key, c)  # fallback: grade alone, first match wins
+        class_map.setdefault(grade_key, c)
 
     created_records = 0
     errors = []
     hashed_default = get_password_hash(DEFAULT_PASSWORD)
     target_role = ENTITY_ROLE_MAP[entity_type]
 
-    # Step 3: Process rows -- each row is independent (a savepoint), so one
-    # bad row is recorded as an error without losing the rows around it.
+    # Step 3: Process rows with individual savepoint management
     for index, row in df.iterrows():
-        row_num = index + 2  # +1 for header row, +1 for 1-indexing
+        row_num = index + 2  # 1-indexed header offset
         full_name = "Unknown"
+        
         try:
+            # Begin an isolated savepoint for each row
             async with db.begin_nested():
                 full_name = str(row.get("full_name", "")).strip()
-                if not full_name or full_name.lower() == "nan":
-                    continue  # blank row -- not an error, just skip silently
+                if not full_name or full_name.lower() in ("nan", "none", ""):
+                    continue  # Skip blank row
 
                 raw_email = row.get("email")
                 if pd.isna(raw_email) or not str(raw_email).strip():
@@ -156,6 +123,7 @@ async def bulk_onboard_entities(
 
                 existing_user_result = await db.execute(select(User).where(User.email == email))
                 user = existing_user_result.scalar_one_or_none()
+                
                 if not user:
                     username = email.split("@")[0]
                     user = User(
@@ -195,7 +163,7 @@ async def bulk_onboard_entities(
                         locked_stream if locked_grade is not None
                         else (str(row.get("stream", "")).strip() or None)
                     )
-                    if not grade:
+                    if not grade or grade.lower() == "nan":
                         raise ValueError("No class/grade found for this row")
 
                     admission_number = str(row.get("admission_number", "")).strip() or None
@@ -238,10 +206,18 @@ async def bulk_onboard_entities(
 
         except ValueError as e:
             errors.append({"row_number": row_num, "name": full_name, "reason": str(e)})
-        except Exception as e:  # noqa: BLE001 -- one bad row must not sink the whole batch
+        except Exception as e:
             errors.append({"row_number": row_num, "name": full_name, "reason": f"Unexpected error: {e}"})
 
-    await db.commit()
+    # Final batch commit after row-level savepoint resolutions
+    try:
+        await db.commit()
+    except Exception as e:
+        await db.rollback()
+        raise HTTPException(
+            status_code=500, 
+            detail=f"Failed to commit bulk batch to database: {str(e)}"
+        )
 
     return {
         "status": "success",
