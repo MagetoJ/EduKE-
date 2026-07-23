@@ -124,6 +124,7 @@ export default function SuperAdminDashboard() {
           email: 'admin@' + data.school_name.toLowerCase().replace(/\s+/g, '') + '.edu',
           name: `Admin @ ${data.school_name}`,
           role: 'admin',
+          roles: ["admin"],
           schoolId: String(schoolId),
           schoolName: data.school_name
         };

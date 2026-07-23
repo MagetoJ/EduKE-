@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import { useState, useEffect, useCallback } from 'react';
 import { Card, CardContent, CardHeader, CardTitle } from '../components/ui/card';
 import { Button } from '../components/ui/button';
 import { Badge } from '../components/ui/badge';
@@ -80,7 +80,7 @@ export default function TeacherDashboard() {
   // Homeroom students, loaded lazily only when the Escalate dialog opens
   const [homeroomStudents, setHomeroomStudents] = useState<{ id: number; first_name: string; last_name: string }[]>([]);
 
-  const loadDashboard = React.useCallback(() => {
+const loadDashboard = useCallback(() => {
     api('/api/teacher-dashboard/overview')
       .then(res => res.json())
       .then((data: DashboardData) => {
@@ -318,7 +318,7 @@ function QuickActions({
 }) {
   return (
     <div className="flex flex-wrap gap-3">
-      <ProgressReportDialog api={api} dashboardData={dashboardData} onSubmitted={onSubmitted} />
+      <ProgressReportDialog api={api} onSubmitted={onSubmitted} />
       {dashboardData.is_class_teacher && (
         <EscalateDialog api={api} homeroomStudents={homeroomStudents} onOpen={onOpenEscalate} onSubmitted={onSubmitted} />
       )}
@@ -327,9 +327,12 @@ function QuickActions({
   );
 }
 
-function ProgressReportDialog({ api, dashboardData, onSubmitted }: {
-  api: ReturnType<typeof useApi>; dashboardData: DashboardData; onSubmitted: () => void;
-}) {
+function ProgressReportDialog({ api, onSubmitted }: {
+  api: ReturnType<typeof useApi>; 
+  onSubmitted: () => void;
+})
+  
+  {
   const [open, setOpen] = useState(false);
   const [courses, setCourses] = useState<{ id: number; name: string; code: string }[]>([]);
   const [courseId, setCourseId] = useState('');

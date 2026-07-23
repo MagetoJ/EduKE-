@@ -71,9 +71,9 @@ const CBC_GRADING_SCALE: CbcAchievementBand[] = [
   { band: 'Below Expectations',       level: 'BE2', min: 1,  max: 10,  points: 1 },
 ]
 
-function getCbcAchievementBand(percentage: number): CbcAchievementBand | null {
-  return CBC_GRADING_SCALE.find(b => percentage >= b.min && percentage <= b.max) ?? null
-}
+/*function (percentage: number): CbcAchievementBand | null {
+
+}*/
 
 export default function Academics() {
   const { user } = useAuth() as any

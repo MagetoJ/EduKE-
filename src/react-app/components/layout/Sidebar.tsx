@@ -21,7 +21,7 @@ import {
   Home,
   TrendingUp,
   Shield,
-  ClipboardList,
+
   Building2
 } from 'lucide-react'
 import { cn } from '../../lib/utils'
