@@ -94,94 +94,32 @@ async def get_department_details(
     current_user: User = Depends(get_current_hod_user)
 ):
     """
-    Returns department parameters, auto-healing unassigned HOD profiles 
-    safely on execution.
+    Returns department parameters safely.
+    Strictly fails if the user is not explicitly assigned to a department.
     """
     user = current_user
     school_id = user.school_id  # transient attribute set by get_current_hod_user
 
     # 1. Attempt to find a department where this user is explicitly registered as HOD
-    dept_res = await db.execute(
-        select(AcademicDepartment)
-        .where(AcademicDepartment.hod_id == user.id) # Use unpacked 'user.id'
-    )
-    dept = dept_res.scalar_one_or_none()
+    try:
+        dept_res = await db.execute(
+            select(AcademicDepartment)
+            .where(AcademicDepartment.hod_id == user.id)
+        )
+        # scalar_one_or_none() ensures only ONE row is returned.
+        dept = dept_res.scalar_one_or_none()
+    except Exception:
+        raise HTTPException(
+            status_code=409,
+            detail="Data conflict: You are assigned to multiple departments. Please contact an administrator."
+        )
     
-    # DYNAMIC SELF-HEALING ENHANCEMENT:
+    # 2. Strict Check: If no department is found, fail explicitly rather than auto-assigning
     if not dept:
-        user_dept_str = ""
-
-        # A. Check if user is registered in any department membership already
-        member_dept_query = select(AcademicDepartment).join(
-            DepartmentMembership, DepartmentMembership.department_id == AcademicDepartment.id
-        ).where(
-            DepartmentMembership.teacher_id == user.id,
-            AcademicDepartment.school_id == school_id
+        raise HTTPException(
+            status_code=404, 
+            detail="You are not assigned as HOD to any department."
         )
-        member_dept_res = await db.execute(member_dept_query)
-        member_dept = member_dept_res.scalars().first()
-        if member_dept:
-            user_dept_str = member_dept.name
-
-        # B. Fallback to heuristic keywords in email/username/full_name
-        # NOTE: the User model has no `department` column, so a plain
-        # getattr(user, 'department', '') always returned '' here, which
-        # meant every un-provisioned HOD fell through to the first
-        # unassigned department (or a hardcoded "Sciences" default). This
-        # keyword pass gives a much better guess before we fall back.
-        if not user_dept_str:
-            for keyword, dept_name in [
-                ("lang", "Languages"), ("english", "Languages"), ("kiswahili", "Languages"), ("french", "Languages"), ("german", "Languages"),
-                ("math", "Mathematics"), ("computer", "Mathematics"),
-                ("sci", "Sciences"), ("chem", "Sciences"), ("phys", "Sciences"), ("biol", "Sciences"),
-                ("hum", "Humanities"), ("hist", "Humanities"), ("geog", "Humanities"), ("cre", "Humanities"),
-                ("tech", "Technical"), ("agri", "Technical"), ("business", "Technical"), ("music", "Technical")
-            ]:
-                if keyword in user.email.lower() or keyword in user.username.lower() or keyword in user.full_name.lower():
-                    user_dept_str = dept_name
-                    break
-
-        fallback_query = select(AcademicDepartment).where(
-            AcademicDepartment.school_id == school_id,
-            AcademicDepartment.hod_id.is_(None)
-        )
-        
-        if user_dept_str:
-            fallback_query = fallback_query.where(
-                AcademicDepartment.name.ilike(f"%{user_dept_str}%")
-            )
-            
-        fallback_res = await db.execute(fallback_query)
-        dept = fallback_res.scalars().first()
-        
-        if dept:
-            # Found an unassigned department cluster slot! Claim it for this user
-            dept.hod_id = user.id
-            await db.flush()
-        else:
-            # Provision a new localized department slot for this school tenant instantly.
-            # Default to Languages (rather than Sciences) when no keyword match is found,
-            # since silently defaulting to a specific subject department is itself a guess --
-            # this at least avoids overloading Sciences for every unmatched HOD.
-            target_name = f"{user_dept_str or 'Languages'} Department"
-            target_code = "LANG"
-            if "sci" in target_name.lower() or "chem" in target_name.lower() or "phys" in target_name.lower() or "biol" in target_name.lower():
-                target_code = "SCI"
-            elif "math" in target_name.lower():
-                target_code = "MATH"
-            elif "hum" in target_name.lower():
-                target_code = "HUM"
-            elif "tech" in target_name.lower() or "app" in target_name.lower():
-                target_code = "TECH"
-
-            dept = AcademicDepartment(
-                name=target_name,
-                code=target_code,
-                school_id=school_id,
-                hod_id=user.id
-            )
-            db.add(dept)
-            await db.flush()
 
     # Ensure the department row possesses the correct multi-tenant school ID
     if not dept.school_id or dept.school_id != school_id:
@@ -189,9 +127,6 @@ async def get_department_details(
         await db.flush()
 
     # Auto-link this school's courses to their correct department rows.
-    # LINK_KEYWORDS is intentionally broader (includes generic names like
-    # "Science"/"Languages") so any loosely-named pre-existing course still
-    # gets swept into the right department.
     link_keywords_by_code = {
         "MATH": ["Mathematics", "Computer Studies", "Computer"],
         "LANG": ["English", "Kiswahili", "Literature", "French", "German", "Arabic", "Sign Language", "Languages"],
@@ -201,14 +136,7 @@ async def get_department_details(
                  "Building Construction", "Physical Education", "Technical"]
     }
 
-    # CANONICAL_SUBJECTS is the authoritative subject list per department --
-    # these are the actual subjects that must exist (and be visible on the
-    # HOD's dashboard) for that department, regardless of whether the school
-    # ever got around to creating them. If a subject in this list has no
-    # matching Course row in the department yet, we provision a starter one.
-    # This list mirrors the standard Kenyan CBC / 8-4-4 subject spread per
-    # department so a newly-provisioned department shows up fully stocked
-    # instead of empty.
+    # CANONICAL_SUBJECTS is the authoritative subject list per department
     canonical_subjects_by_code = {
         "MATH": ["Mathematics", "Computer Studies"],
         "LANG": ["English", "Kiswahili", "Literature in English", "French", "German", "Arabic", "Kenyan Sign Language"],

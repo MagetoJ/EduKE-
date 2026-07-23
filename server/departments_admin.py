@@ -163,6 +163,18 @@ async def update_department(
             hod_user = hod_result.scalar_one_or_none()
             if not hod_user:
                 raise HTTPException(status_code=404, detail="Selected HOD staff member was not found")
+            
+            # THE FIX: Wipe this user from any other department assignments to prevent split-brain
+            clear_query = update(AcademicDepartment).where(
+                AcademicDepartment.hod_id == new_hod_id,
+                AcademicDepartment.id != department_id
+            ).values(hod_id=None)
+            
+            if current_school:
+                clear_query = clear_query.where(AcademicDepartment.school_id == current_school.id)
+                
+            await db.execute(clear_query)
+
             await _set_role(db, new_hod_id, dept.school_id, UserRole.HOD)
 
         dept.hod_id = new_hod_id

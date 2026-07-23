@@ -211,7 +211,20 @@ async def assign_department_hod(
     if not dept:
         raise HTTPException(status_code=404, detail="Selected department not found.")
 
-    # 4. Bind the user as HOD. This is the single source of truth hod.py's
+    # 4. PREVENT MULTIPLE DEPARTMENTS (THE FIX)
+    # Clear this user from ANY existing department assignments within this school
+    # to prevent the split-brain / duplicate HOD bug.
+    await db.execute(
+        update(AcademicDepartment)
+        .where(
+            AcademicDepartment.hod_id == payload.user_id,
+            AcademicDepartment.school_id == current_school.id,
+            AcademicDepartment.id != payload.department_id
+        )
+        .values(hod_id=None)
+    )
+
+    # 5. Bind the user as HOD. This is the single source of truth hod.py's
     #    get_managed_department() reads from -- there's no separate "hod"
     #    role flag to flip on school_users, since map_frontend_role_to_db_role
     #    already collapses "hod" into UserRole.TEACHER there.
