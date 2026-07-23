@@ -49,6 +49,36 @@ async def _serialize(db: AsyncSession, dept: AcademicDepartment) -> dict:
     }
 
 
+async def _ensure_hod_not_already_assigned(
+    db: AsyncSession,
+    hod_id: int,
+    school_id: int,
+    exclude_department_id: Optional[int] = None,
+) -> None:
+    """
+    Enforces: a staff member can only be HOD of ONE department at a time.
+    Raises a 400 if `hod_id` is already the HOD of a different department
+    in the same school, instead of silently overwriting/clearing anything.
+    """
+    query = select(AcademicDepartment).where(
+        AcademicDepartment.hod_id == hod_id,
+        AcademicDepartment.school_id == school_id,
+    )
+    if exclude_department_id is not None:
+        query = query.where(AcademicDepartment.id != exclude_department_id)
+
+    result = await db.execute(query)
+    conflicting_dept = result.scalar_one_or_none()
+    if conflicting_dept:
+        raise HTTPException(
+            status_code=400,
+            detail=(
+                f"This staff member is already HOD of '{conflicting_dept.name}'. "
+                f"Revoke that assignment first before assigning them to another department."
+            ),
+        )
+
+
 def _resolve_school_id(current_school: Optional[School], current_user: User, fallback: Optional[int]) -> int:
     if current_school:
         return current_school.id
@@ -120,6 +150,10 @@ async def create_department(
         hod_user = hod_result.scalar_one_or_none()
         if not hod_user:
             raise HTTPException(status_code=404, detail="Selected HOD staff member was not found")
+
+        # Prevent the same staff member from being HOD of two departments at once
+        await _ensure_hod_not_already_assigned(db, payload.hod_id, target_school_id)
+
         dept.hod_id = payload.hod_id
         await _set_role(db, payload.hod_id, target_school_id, UserRole.HOD)
 
@@ -163,17 +197,14 @@ async def update_department(
             hod_user = hod_result.scalar_one_or_none()
             if not hod_user:
                 raise HTTPException(status_code=404, detail="Selected HOD staff member was not found")
-            
-            # THE FIX: Wipe this user from any other department assignments to prevent split-brain
-            clear_query = update(AcademicDepartment).where(
-                AcademicDepartment.hod_id == new_hod_id,
-                AcademicDepartment.id != department_id
-            ).values(hod_id=None)
-            
-            if current_school:
-                clear_query = clear_query.where(AcademicDepartment.school_id == current_school.id)
-                
-            await db.execute(clear_query)
+
+            # Prevent the same staff member from being HOD of two departments at once.
+            # Instead of silently stripping them off their other department (which is
+            # what caused departments to show the wrong/stale HOD), reject the request
+            # so the admin can consciously revoke the old assignment first.
+            await _ensure_hod_not_already_assigned(
+                db, new_hod_id, dept.school_id, exclude_department_id=department_id
+            )
 
             await _set_role(db, new_hod_id, dept.school_id, UserRole.HOD)
 

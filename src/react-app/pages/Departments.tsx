@@ -148,6 +148,7 @@ export const Departments = () => {
         onSave={handleSave}
         initialData={selectedDept}
         teachersList={teachers}
+        departmentsList={departments}
       />
     </div>
   )
