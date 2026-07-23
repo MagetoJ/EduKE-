@@ -7,10 +7,11 @@ from pydantic import BaseModel
 from datetime import date
 
 from database import get_db
-from models import User, Student
+from models import User, Student, Notification
 from models_roles import ClassTeacherAssignment
 from models_class_teacher import DailyAttendance, ClassTeacherRemark, StudentWelfareEscalation
 from auth import get_current_user # Resolves authenticated session context
+from reporting import get_teacher_hods
 
 router = APIRouter(prefix="/api/class-teacher", tags=["Class Teacher Workloads"])
 
@@ -146,7 +147,25 @@ async def escalate_student_concern(
         reason=payload.reason,
         details=payload.details
     )
-    
     db.add(escalation)
+
+    # Notify the HOD(s) this class teacher reports to. Class teachers are
+    # assigned by the Admin and have no department link of their own, so
+    # get_teacher_hods() falls back to every HOD in the school if it can't
+    # find a specific one - better an escalation reaches everyone than nobody.
+    hods, _ = await get_teacher_hods(db, current_user.id, assignment.school_id)
+    student_res = await db.execute(select(Student).where(Student.id == payload.student_id))
+    student = student_res.scalar_one_or_none()
+    student_name = f"{student.first_name} {student.last_name}" if student else "a student"
+    for hod in hods:
+        db.add(Notification(
+            school_id=assignment.school_id,
+            user_id=hod["id"],
+            title="Student Welfare Escalation",
+            message=f"{current_user.full_name} escalated a concern about {student_name}: {payload.reason}",
+            notification_type="warning",
+            link_url="/dashboard/hod"
+        ))
+
     await db.commit()
     return {"status": "success", "message": "Student concern successfully escalated."}

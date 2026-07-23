@@ -2,11 +2,12 @@ from fastapi import APIRouter, Depends, HTTPException, status
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select
 from database import get_db
-from models import LeaveRequest, User, School
+from models import LeaveRequest, User, School, Notification
 from auth import get_current_school, get_current_user
 from pydantic import BaseModel, model_validator
 from typing import Optional
 from datetime import date as datetime_date
+from reporting import get_teacher_hods
 
 router = APIRouter(prefix="/leave-requests", tags=["Leave Management"])
 
@@ -103,6 +104,21 @@ async def create_leave_request(
     )
     
     db.add(new_leave)
+
+    # First-tier review is the HOD (see /api/hod/leave-requests): make sure
+    # they actually find out a request is waiting instead of only seeing it
+    # if they happen to check that page.
+    hods, _ = await get_teacher_hods(db, current_user.id, current_school.id)
+    for hod in hods:
+        db.add(Notification(
+            school_id=current_school.id,
+            user_id=hod["id"],
+            title="New Leave Request",
+            message=f"{current_user.full_name} requested {new_leave.leave_type} from {data.start_date} to {data.end_date}.",
+            notification_type="info",
+            link_url="/dashboard/hod"
+        ))
+
     await db.commit()
     await db.refresh(new_leave)
     

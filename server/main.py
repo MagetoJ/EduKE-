@@ -51,7 +51,7 @@ from teacher_progress import router as teacher_progress_router
 from departments_admin import router as departments_admin_router
 from bulk_onboard import router as bulk_router
 # ADDED: Import the newly created teacher dashboard router
-from teacher_dashboard import router as teacher_dashboard_router 
+from router.teacher_dashboard import router as teacher_dashboard_router
 
 # Setup logging
 logging.basicConfig(level=logging.INFO)
@@ -101,8 +101,7 @@ app.include_router(bulk_router)
 
 # ADDED: Register the teacher dashboard routes to your FastAPI app
 app.include_router(
-    teacher_dashboard_router, 
-    prefix="/api/teacher-dashboard", 
+    teacher_dashboard_router,
     dependencies=[Depends(get_current_user)]
 )
 
