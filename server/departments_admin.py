@@ -1,6 +1,7 @@
 from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select, update
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import selectinload
 from typing import Optional
 from sqlalchemy import select, func
@@ -10,6 +11,7 @@ from database import get_db
 from models import User, UserRole, school_users, School
 from models_roles import AcademicDepartment
 from auth import get_current_user, get_current_school, require_roles
+from hod_shared import ensure_hod_not_already_assigned, set_user_role_in_school, reassign_department_hod
 
 router = APIRouter(prefix="/api/admin/departments", tags=["Admin: Departments & HOD"])
 
@@ -22,15 +24,6 @@ class DepartmentPayload(BaseModel):
     code: Optional[str] = None
     description: Optional[str] = None
     hod_id: Optional[int] = None
-
-
-async def _set_role(db: AsyncSession, user_id: int, school_id: int, role: UserRole):
-    """Sets a user's primary role within a school (used to appoint/demote HODs)."""
-    await db.execute(
-        update(school_users)
-        .where(school_users.c.user_id == user_id, school_users.c.school_id == school_id)
-        .values(role=role)
-    )
 
 
 async def _serialize(db: AsyncSession, dept: AcademicDepartment) -> dict:
@@ -47,36 +40,6 @@ async def _serialize(db: AsyncSession, dept: AcademicDepartment) -> dict:
         "hod_id": dept.hod_id,
         "hod_name": hod_name,
     }
-
-
-async def _ensure_hod_not_already_assigned(
-    db: AsyncSession,
-    hod_id: int,
-    school_id: int,
-    exclude_department_id: Optional[int] = None,
-) -> None:
-    """
-    Enforces: a staff member can only be HOD of ONE department at a time.
-    Raises a 400 if `hod_id` is already the HOD of a different department
-    in the same school, instead of silently overwriting/clearing anything.
-    """
-    query = select(AcademicDepartment).where(
-        AcademicDepartment.hod_id == hod_id,
-        AcademicDepartment.school_id == school_id,
-    )
-    if exclude_department_id is not None:
-        query = query.where(AcademicDepartment.id != exclude_department_id)
-
-    result = await db.execute(query)
-    conflicting_dept = result.scalar_one_or_none()
-    if conflicting_dept:
-        raise HTTPException(
-            status_code=400,
-            detail=(
-                f"This staff member is already HOD of '{conflicting_dept.name}'. "
-                f"Revoke that assignment first before assigning them to another department."
-            ),
-        )
 
 
 def _resolve_school_id(current_school: Optional[School], current_user: User, fallback: Optional[int]) -> int:
@@ -152,12 +115,20 @@ async def create_department(
             raise HTTPException(status_code=404, detail="Selected HOD staff member was not found")
 
         # Prevent the same staff member from being HOD of two departments at once
-        await _ensure_hod_not_already_assigned(db, payload.hod_id, target_school_id)
+        await ensure_hod_not_already_assigned(db, payload.hod_id, target_school_id)
 
         dept.hod_id = payload.hod_id
-        await _set_role(db, payload.hod_id, target_school_id, UserRole.HOD)
+        await set_user_role_in_school(db, payload.hod_id, target_school_id, UserRole.HOD)
 
-    await db.commit()
+    try:
+        await db.commit()
+    except IntegrityError:
+        await db.rollback()
+        raise HTTPException(
+            status_code=400,
+            detail="This department name or HOD assignment conflicts with an existing one "
+                    "(likely a duplicate request submitted at the same time). Please refresh and try again.",
+        )
     await db.refresh(dept)
     return await _serialize(db, dept)
 
@@ -183,34 +154,29 @@ async def update_department(
         dept.code = payload.code.strip() or dept.code
     dept.description = payload.description
 
-    old_hod_id = dept.hod_id
     new_hod_id = payload.hod_id
 
-    if new_hod_id != old_hod_id:
-        # Demote the previous HOD back to a regular teacher
-        if old_hod_id:
-            await _set_role(db, old_hod_id, dept.school_id, UserRole.TEACHER)
-
-        # Promote the newly selected staff member to HOD
+    if new_hod_id != dept.hod_id:
         if new_hod_id:
             hod_result = await db.execute(select(User).where(User.id == new_hod_id))
             hod_user = hod_result.scalar_one_or_none()
             if not hod_user:
                 raise HTTPException(status_code=404, detail="Selected HOD staff member was not found")
 
-            # Prevent the same staff member from being HOD of two departments at once.
-            # Instead of silently stripping them off their other department (which is
-            # what caused departments to show the wrong/stale HOD), reject the request
-            # so the admin can consciously revoke the old assignment first.
-            await _ensure_hod_not_already_assigned(
-                db, new_hod_id, dept.school_id, exclude_department_id=department_id
-            )
+        # reassign_department_hod rejects (400) if new_hod_id is already HOD of
+        # another department, demotes the outgoing HOD to TEACHER, promotes the
+        # incoming HOD, and updates dept.hod_id -- all in one consistent place.
+        await reassign_department_hod(db, dept, new_hod_id)
 
-            await _set_role(db, new_hod_id, dept.school_id, UserRole.HOD)
-
-        dept.hod_id = new_hod_id
-
-    await db.commit()
+    try:
+        await db.commit()
+    except IntegrityError:
+        await db.rollback()
+        raise HTTPException(
+            status_code=400,
+            detail="This department name or HOD assignment conflicts with an existing one "
+                    "(likely a duplicate request submitted at the same time). Please refresh and try again.",
+        )
     await db.refresh(dept)
     return await _serialize(db, dept)
 
@@ -232,7 +198,7 @@ async def delete_department(
 
     # Demote the assigned HOD back to a regular teacher before removing the department
     if dept.hod_id:
-        await _set_role(db, dept.hod_id, dept.school_id, UserRole.TEACHER)
+        await set_user_role_in_school(db, dept.hod_id, dept.school_id, UserRole.TEACHER)
 
     await db.delete(dept)
     await db.commit()

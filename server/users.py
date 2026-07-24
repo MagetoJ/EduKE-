@@ -8,6 +8,7 @@ from database import get_db
 from models import User, School, school_users, UserRole
 from auth import get_current_school, get_current_user, get_password_hash
 from models_roles import ClassTeacherAssignment, AcademicDepartment
+from hod_shared import reassign_department_hod
 
 router = APIRouter(prefix="/users", tags=["User Management"])
 
@@ -211,24 +212,14 @@ async def assign_department_hod(
     if not dept:
         raise HTTPException(status_code=404, detail="Selected department not found.")
 
-    # 4. PREVENT MULTIPLE DEPARTMENTS (THE FIX)
-    # Clear this user from ANY existing department assignments within this school
-    # to prevent the split-brain / duplicate HOD bug.
-    await db.execute(
-        update(AcademicDepartment)
-        .where(
-            AcademicDepartment.hod_id == payload.user_id,
-            AcademicDepartment.school_id == current_school.id,
-            AcademicDepartment.id != payload.department_id
-        )
-        .values(hod_id=None)
-    )
-
-    # 5. Bind the user as HOD. This is the single source of truth hod.py's
-    #    get_managed_department() reads from -- there's no separate "hod"
-    #    role flag to flip on school_users, since map_frontend_role_to_db_role
-    #    already collapses "hod" into UserRole.TEACHER there.
-    dept.hod_id = payload.user_id
+    # 4. Reassign the HOD for this specific department through the shared
+    #    helper (also used by /api/admin/departments). This is what actually
+    #    prevents the duplicate-HOD bug: it rejects the request (400) if
+    #    payload.user_id is already HOD of a *different* department instead
+    #    of silently detaching them from it, and it properly demotes this
+    #    department's outgoing HOD back to TEACHER so school_users.role never
+    #    drifts out of sync with academic_departments.hod_id.
+    await reassign_department_hod(db, dept, payload.user_id)
 
     await db.commit()
     return {"success": True, "message": f"{user.full_name} is now the official HOD for {dept.name}."}

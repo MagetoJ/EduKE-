@@ -11,7 +11,8 @@ from sqlalchemy.exc import SQLAlchemyError
 from sqlalchemy import select, insert, update, delete  # Added update here
 from datetime import timedelta
 from typing import Optional
-from models_roles import ClassTeacherAssignment  
+from models_roles import ClassTeacherAssignment, AcademicDepartment
+from hod_shared import set_user_role_in_school
 import logging
 import traceback
 import os
@@ -451,10 +452,31 @@ async def update_staff_member(
     if data.email is not None:
         user.email = data.email
 
+    # 2b. Guard against the "two HODs in one department" bug.
+    # This form has no department_id field at all -- it only knows a free-text
+    # "department" label -- so it cannot enforce "one HOD per department"
+    # against academic_departments.hod_id. Previously it would happily set
+    # role="hod" for any staff member here, completely disconnected from the
+    # department that already had a real HOD assigned via the Departments &
+    # HOD Management page. That split-brain is exactly what produced two
+    # different people both showing up as "HOD" for what admins consider the
+    # same department. Appointing a HOD must go through the Departments page,
+    # which knows the actual department_id and enforces the one-HOD invariant.
+    requested_role = data.role.lower().strip() if data.role else None
+    if requested_role == "hod" and old_role != "hod":
+        raise HTTPException(
+            status_code=400,
+            detail=(
+                "HODs must be appointed from the Departments & HOD Management page, "
+                "not from the Staff editor, so the assignment is tied to a specific "
+                "department and can't collide with an existing HOD."
+            ),
+        )
+
     # 3. Process role and activity updates
     update_values = {}
     if data.role is not None:
-        update_values["role"] = data.role 
+        update_values["role"] = data.role
     if data.is_active is not None:
         update_values["is_active"] = data.is_active
 
@@ -464,6 +486,20 @@ async def update_staff_member(
                 school_users.c.user_id == staff_id,
                 school_users.c.school_id == current_school.id
             ).values(**update_values)
+        )
+
+    # 3b. If this staff member was HOD and is being moved to a different role
+    # from this screen, keep academic_departments.hod_id in sync -- otherwise
+    # the Departments page would keep showing them as HOD of their old
+    # department even though their school-wide role no longer says "hod".
+    if old_role == "hod" and requested_role is not None and requested_role != "hod":
+        await db.execute(
+            update(AcademicDepartment)
+            .where(
+                AcademicDepartment.hod_id == staff_id,
+                AcademicDepartment.school_id == current_school.id,
+            )
+            .values(hod_id=None)
         )
 
     # 4. Fixed Bug #3: Manage ClassTeacherAssignment rows

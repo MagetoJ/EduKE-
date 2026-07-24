@@ -1607,6 +1607,17 @@ CREATE TABLE IF NOT EXISTS academic_departments (
     UNIQUE(school_id, code)
 );
 
+-- Enforce "one HOD per department" and "no duplicate department names"
+-- at the database level, not just in application code (see
+-- server/hod_shared.py + server/migrate_hod_department_constraints.py for
+-- the history behind this -- a department could otherwise end up with two
+-- different people both flagged as HOD).
+CREATE UNIQUE INDEX IF NOT EXISTS uq_one_department_per_hod
+    ON academic_departments (school_id, hod_id)
+    WHERE hod_id IS NOT NULL;
+CREATE UNIQUE INDEX IF NOT EXISTS uq_department_name_per_school_ci
+    ON academic_departments (school_id, lower(name));
+
 -- 2. Create class teacher assignments (One Class Teacher per Grade Stream)
 CREATE TABLE IF NOT EXISTS class_teacher_assignments (
     id SERIAL PRIMARY KEY,
