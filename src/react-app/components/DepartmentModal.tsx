@@ -27,6 +27,19 @@ interface DepartmentModalProps {
   departmentsList?: Department[]
 }
 
+// Standard Kenyan CBC academic departments and their codes (kept in sync with
+// server/seed_departments.py). Selecting one of these auto-fills the code;
+// picking "Custom" reveals a free-text code field for genuinely new departments.
+const STANDARD_DEPARTMENTS: { name: string; code: string }[] = [
+  { name: 'Mathematics Department', code: 'MATH' },
+  { name: 'Languages Department', code: 'LANG' },
+  { name: 'Sciences Department', code: 'SCI' },
+  { name: 'Humanities Department', code: 'HUM' },
+  { name: 'Technical & Applied Sciences', code: 'TECH' },
+]
+
+const CUSTOM_OPTION = '__custom__'
+
 export const DepartmentModal: React.FC<DepartmentModalProps> = ({
   isOpen,
   onClose,
@@ -41,17 +54,50 @@ export const DepartmentModal: React.FC<DepartmentModalProps> = ({
     hod_id: null,
     description: '',
   })
+  const [selectedOption, setSelectedOption] = useState<string>('')
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState<string | null>(null)
+
+  // Standard departments already created in this school shouldn't be offered
+  // again in the dropdown (that would trigger the duplicate-name check),
+  // except the one currently being edited.
+  const availableStandardDepartments = STANDARD_DEPARTMENTS.filter(
+    (std) =>
+      !departmentsList.some(
+        (dept) => dept.code === std.code && dept.id !== initialData?.id
+      )
+  )
 
   useEffect(() => {
     if (initialData) {
       setFormData(initialData)
+      const matched = STANDARD_DEPARTMENTS.find(
+        (std) => std.code === initialData.code && std.name === initialData.name
+      )
+      setSelectedOption(matched ? matched.code : CUSTOM_OPTION)
     } else {
       setFormData({ name: '', code: '', hod_id: null, description: '' })
+      setSelectedOption('')
     }
     setError(null)
   }, [initialData, isOpen])
+
+  const handleDeptOptionChange = (value: string) => {
+    setSelectedOption(value)
+    if (value === CUSTOM_OPTION) {
+      // New/custom department: clear name & code so the admin supplies their own.
+      setFormData((prev) => ({ ...prev, name: '', code: '' }))
+    } else if (value === '') {
+      setFormData((prev) => ({ ...prev, name: '', code: '' }))
+    } else {
+      const std = STANDARD_DEPARTMENTS.find((s) => s.code === value)
+      if (std) {
+        setFormData((prev) => ({ ...prev, name: std.name, code: std.code }))
+      }
+    }
+  }
+
+  const isCustom = selectedOption === CUSTOM_OPTION
 
   // Map hod_id -> the name of the (other) department they currently head,
   // so we can warn/disable in the dropdown before the admin even submits.
@@ -88,22 +134,57 @@ export const DepartmentModal: React.FC<DepartmentModalProps> = ({
 
         <form onSubmit={handleSubmit} className="space-y-4 py-2">
           <div>
-            <label className="text-sm font-medium">Department Name *</label>
-            <Input
+            <label className="text-sm font-medium">Department *</label>
+            <p className="text-xs text-muted-foreground mb-1">
+              Choose a standard CBC department (its code is filled in automatically), or add a
+              custom department with its own code.
+            </p>
+            <select
               required
-              placeholder="e.g. Humanities & Social Sciences"
-              value={formData.name}
-              onChange={(e) => setFormData({ ...formData, name: e.target.value })}
-            />
+              className="w-full border rounded-md p-2 bg-background text-sm"
+              value={selectedOption}
+              onChange={(e) => handleDeptOptionChange(e.target.value)}
+            >
+              <option value="" disabled>
+                -- Select a Department --
+              </option>
+              {availableStandardDepartments.map((std) => (
+                <option key={std.code} value={std.code}>
+                  {std.name} ({std.code})
+                </option>
+              ))}
+              <option value={CUSTOM_OPTION}>+ Add New / Custom Department</option>
+            </select>
           </div>
+
+          {isCustom && (
+            <div>
+              <label className="text-sm font-medium">Department Name *</label>
+              <Input
+                required
+                placeholder="e.g. Humanities & Social Sciences"
+                value={formData.name}
+                onChange={(e) => setFormData({ ...formData, name: e.target.value })}
+              />
+            </div>
+          )}
 
           <div>
             <label className="text-sm font-medium">Department Code</label>
-            <Input
-              placeholder="e.g. HUM-SOC"
-              value={formData.code}
-              onChange={(e) => setFormData({ ...formData, code: e.target.value })}
-            />
+            {isCustom ? (
+              <>
+                <Input
+                  placeholder="e.g. HUM-SOC"
+                  value={formData.code}
+                  onChange={(e) => setFormData({ ...formData, code: e.target.value })}
+                />
+                <p className="text-xs text-muted-foreground mt-1">
+                  Leave blank to auto-generate a code from the department name.
+                </p>
+              </>
+            ) : (
+              <Input value={formData.code} readOnly disabled placeholder="Auto-generated" />
+            )}
           </div>
 
           <div>

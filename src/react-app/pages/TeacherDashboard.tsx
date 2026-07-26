@@ -120,8 +120,8 @@ const loadDashboard = useCallback(() => {
   return (
     <div className="space-y-6 p-6">
       <div>
-        <h1 className="text-3xl font-bold text-slate-900">Educator Workspace</h1>
-        <p className="text-slate-600">Deliver lessons, assess competencies, and manage your students</p>
+        <h1 className="text-2xl sm:text-3xl font-bold text-slate-900">Educator Workspace</h1>
+        <p className="text-sm sm:text-base text-slate-600">Deliver lessons, assess competencies, and manage your students</p>
       </div>
 
       <ReportingCard data={dashboardData} />
@@ -135,26 +135,26 @@ const loadDashboard = useCallback(() => {
       />
 
       {/* Primary Feature Tabs */}
-      <div className="flex flex-wrap gap-2 border-b pb-2">
+      <div className="flex gap-2 border-b pb-2 overflow-x-auto -mx-6 px-6 sm:mx-0 sm:px-0 sm:flex-wrap scrollbar-thin">
         {dashboardData.is_class_teacher && (
           <Button
             variant={activeTab === 'homeroom' ? 'default' : 'ghost'}
             onClick={() => setActiveTab('homeroom')}
-            className={`gap-2 ${activeTab === 'homeroom' ? 'bg-blue-600 hover:bg-blue-700' : 'text-blue-600'}`}
+            className={`gap-2 shrink-0 ${activeTab === 'homeroom' ? 'bg-blue-600 hover:bg-blue-700' : 'text-blue-600'}`}
           >
             <Users className="w-4 h-4" /> My Homeroom
           </Button>
         )}
-        <Button variant={activeTab === 'lessons' ? 'default' : 'ghost'} onClick={() => setActiveTab('lessons')} className="gap-2">
+        <Button variant={activeTab === 'lessons' ? 'default' : 'ghost'} onClick={() => setActiveTab('lessons')} className="gap-2 shrink-0">
           <BookOpen className="w-4 h-4" /> Lesson Planning
         </Button>
-        <Button variant={activeTab === 'grades' ? 'default' : 'ghost'} onClick={() => setActiveTab('grades')} className="gap-2">
+        <Button variant={activeTab === 'grades' ? 'default' : 'ghost'} onClick={() => setActiveTab('grades')} className="gap-2 shrink-0">
           <CheckSquare className="w-4 h-4" /> CBC Competencies
         </Button>
-        <Button variant={activeTab === 'clubs' ? 'default' : 'ghost'} onClick={() => setActiveTab('clubs')} className="gap-2">
+        <Button variant={activeTab === 'clubs' ? 'default' : 'ghost'} onClick={() => setActiveTab('clubs')} className="gap-2 shrink-0">
           <Trophy className="w-4 h-4" /> Co-Curricular
         </Button>
-        <Button variant={activeTab === 'reports' ? 'default' : 'ghost'} onClick={() => setActiveTab('reports')} className="gap-2">
+        <Button variant={activeTab === 'reports' ? 'default' : 'ghost'} onClick={() => setActiveTab('reports')} className="gap-2 shrink-0">
           <FileText className="w-4 h-4" /> Reports & Requests
         </Button>
       </div>
@@ -171,9 +171,9 @@ const loadDashboard = useCallback(() => {
                 <p className="text-sm text-slate-600">Total Enrolled: <span className="font-bold text-slate-900">{dashboardData.homeroom.total_students}</span></p>
                 <p className="text-sm text-slate-600">Daily Attendance Status: <span className="text-red-600 font-medium">Pending</span></p>
               </div>
-              <div className="flex gap-2">
-                <Button className="bg-blue-600 hover:bg-blue-700 gap-2"><ClipboardCheck className="w-4 h-4" /> Mark Roll Register</Button>
-                <Button variant="outline" className="gap-2 border-blue-200 text-blue-700 hover:bg-blue-50"><FileText className="w-4 h-4" /> Term Reports</Button>
+              <div className="flex flex-col sm:flex-row gap-2 w-full md:w-auto">
+                <Button className="bg-blue-600 hover:bg-blue-700 gap-2 w-full sm:w-auto"><ClipboardCheck className="w-4 h-4" /> Mark Roll Register</Button>
+                <Button variant="outline" className="gap-2 border-blue-200 text-blue-700 hover:bg-blue-50 w-full sm:w-auto"><FileText className="w-4 h-4" /> Term Reports</Button>
               </div>
             </div>
           </CardContent>
@@ -201,7 +201,7 @@ const loadDashboard = useCallback(() => {
         <div className="space-y-4">
           <Card>
             <CardHeader><CardTitle>Assessment Configuration Parameters</CardTitle></CardHeader>
-            <CardContent className="grid grid-cols-2 gap-4">
+            <CardContent className="grid grid-cols-1 sm:grid-cols-2 gap-4">
               <div>
                 <label className="text-xs font-semibold block mb-1">Select Learning Area Offering</label>
                 <select className="w-full p-2 border rounded bg-background" onChange={(e) => handleCourseChange(e.target.value)}>
@@ -233,9 +233,9 @@ const loadDashboard = useCallback(() => {
                   <p className="text-sm text-slate-500">No students found for this class.</p>
                 ) : (
                   students.map((student: any) => (
-                    <div key={student.id} className="p-3 border rounded-lg flex items-center justify-between bg-background">
-                      <span className="font-medium text-sm">{student.first_name} {student.last_name} ({student.admission_number})</span>
-                      <select className="p-1.5 border rounded text-xs font-bold bg-muted/50">
+                    <div key={student.id} className="p-3 border rounded-lg flex flex-col sm:flex-row sm:items-center sm:justify-between gap-2 bg-background">
+                      <span className="font-medium text-sm break-words">{student.first_name} {student.last_name} ({student.admission_number})</span>
+                      <select className="p-1.5 border rounded text-xs font-bold bg-muted/50 w-full sm:w-auto">
                         <option value="4">EE (Exceeding Expectations)</option>
                         <option value="3">ME (Meeting Expectations)</option>
                         <option value="2">AE (Approaching Expectations)</option>
@@ -285,14 +285,14 @@ function ReportingCard({ data }: { data: DashboardData }) {
                 Ask your Admin or HOD to add you to a department roster for a direct reporting line.
               </p>
             )}
-            <div className="flex flex-wrap gap-3">
+            <div className="flex flex-col sm:flex-row sm:flex-wrap gap-3">
               {data.reports_to.map(hod => (
-                <div key={hod.id} className="flex items-center gap-2 border rounded-lg px-3 py-2 bg-slate-50">
-                  <div>
-                    <p className="text-sm font-semibold text-slate-900">{hod.name}</p>
-                    <p className="text-xs text-slate-500">{hod.department} Dept.</p>
+                <div key={hod.id} className="flex items-center justify-between sm:justify-start gap-2 border rounded-lg px-3 py-2 bg-slate-50 w-full sm:w-auto">
+                  <div className="min-w-0">
+                    <p className="text-sm font-semibold text-slate-900 truncate">{hod.name}</p>
+                    <p className="text-xs text-slate-500 truncate">{hod.department} Dept.</p>
                   </div>
-                  <a href={`mailto:${hod.email}`} className="text-slate-400 hover:text-blue-600">
+                  <a href={`mailto:${hod.email}`} className="text-slate-400 hover:text-blue-600 shrink-0">
                     <Mail className="w-4 h-4" />
                   </a>
                 </div>
@@ -317,7 +317,7 @@ function QuickActions({
   onSubmitted: () => void;
 }) {
   return (
-    <div className="flex flex-wrap gap-3">
+    <div className="flex flex-col sm:flex-row sm:flex-wrap gap-3">
       <ProgressReportDialog api={api} onSubmitted={onSubmitted} />
       {dashboardData.is_class_teacher && (
         <EscalateDialog api={api} homeroomStudents={homeroomStudents} onOpen={onOpenEscalate} onSubmitted={onSubmitted} />
@@ -386,11 +386,11 @@ function ProgressReportDialog({ api, onSubmitted }: {
   return (
     <Dialog open={open} onOpenChange={handleOpenChange}>
       <DialogTrigger asChild>
-        <Button className="gap-2 bg-emerald-600 hover:bg-emerald-700">
+        <Button className="gap-2 bg-emerald-600 hover:bg-emerald-700 w-full sm:w-auto">
           <FileText className="w-4 h-4" /> File Progress Report
         </Button>
       </DialogTrigger>
-      <DialogContent>
+      <DialogContent className="max-h-[90vh] overflow-y-auto">
         <DialogHeader>
           <DialogTitle>File a Progress Report</DialogTitle>
           <DialogDescription>This goes straight to your HOD's dashboard.</DialogDescription>
@@ -481,11 +481,11 @@ function EscalateDialog({ api, homeroomStudents, onOpen, onSubmitted }: {
   return (
     <Dialog open={open} onOpenChange={handleOpenChange}>
       <DialogTrigger asChild>
-        <Button variant="outline" className="gap-2 border-amber-300 text-amber-700 hover:bg-amber-50">
+        <Button variant="outline" className="gap-2 border-amber-300 text-amber-700 hover:bg-amber-50 w-full sm:w-auto">
           <MessageSquareWarning className="w-4 h-4" /> Escalate a Concern
         </Button>
       </DialogTrigger>
-      <DialogContent>
+      <DialogContent className="max-h-[90vh] overflow-y-auto">
         <DialogHeader>
           <DialogTitle>Escalate a Student Welfare Concern</DialogTitle>
           <DialogDescription>This notifies your HOD immediately so it doesn't wait for a scheduled check-in.</DialogDescription>
@@ -555,11 +555,11 @@ function LeaveRequestDialog({ api, onSubmitted }: { api: ReturnType<typeof useAp
   return (
     <Dialog open={open} onOpenChange={setOpen}>
       <DialogTrigger asChild>
-        <Button variant="outline" className="gap-2">
+        <Button variant="outline" className="gap-2 w-full sm:w-auto">
           <CalendarClock className="w-4 h-4" /> Request Leave
         </Button>
       </DialogTrigger>
-      <DialogContent>
+      <DialogContent className="max-h-[90vh] overflow-y-auto">
         <DialogHeader>
           <DialogTitle>Request Leave</DialogTitle>
           <DialogDescription>Your HOD reviews this first, before it goes to Admin for final approval.</DialogDescription>

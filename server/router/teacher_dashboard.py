@@ -71,7 +71,7 @@ class TeacherDashboardOverview(BaseModel):
 @router.get("/overview", response_model=TeacherDashboardOverview)
 async def get_teacher_overview(
     db: AsyncSession = Depends(get_db),
-    current_user: User = Depends(require_roles("teacher", "class_teacher")),
+    current_user: User = Depends(require_roles("teacher", "class_teacher", "hod")),
     current_school: School = Depends(get_current_school)
 ):
     """
