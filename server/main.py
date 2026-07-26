@@ -383,7 +383,23 @@ async def list_school_staff(
     
     result = await db.execute(query)
     rows = result.all()
-    
+
+    # HODs' department info comes from academic_departments.hod_id, not a
+    # free-text field, so pull the real name/code for anyone who is one --
+    # this replaces the old placeholder ("Academics") that told an admin
+    # nothing about which actual department they head.
+    dept_result = await db.execute(
+        select(AcademicDepartment.id, AcademicDepartment.hod_id, AcademicDepartment.name, AcademicDepartment.code)
+        .where(
+            AcademicDepartment.school_id == current_school.id,
+            AcademicDepartment.hod_id.is_not(None),
+        )
+    )
+    dept_by_hod_id = {
+        hod_id: {"id": dept_id, "name": dept_name, "code": dept_code}
+        for dept_id, hod_id, dept_name, dept_code in dept_result.all()
+    }
+
     staff_list = []
     for row in rows:
         raw_role = row[3]
@@ -400,14 +416,27 @@ async def list_school_staff(
 
         if role_str in ["student", "parent"]:
             continue
-            
+
+        assigned_dept = dept_by_hod_id.get(row[0])
+        if role_str == "hod" and assigned_dept:
+            department_display = assigned_dept["name"]
+        elif role_str in ["admin", "hr_manager", "registrar"]:
+            department_display = "Administration"
+        else:
+            department_display = "Academics"
+
         staff_list.append({
             "id": str(row[0]),   
             "name": row[1] or "",  
             "email": row[2] or "", 
             "phone": "",
             "role": role_str,
-            "department": "Administration" if role_str in ["admin", "hr_manager", "registrar"] else "Academics",
+            "department": department_display,
+            # Only populated for actual HODs, pulled straight from
+            # academic_departments -- None for everyone else so the frontend
+            # can tell "real department" apart from the generic placeholder.
+            "department_id": assigned_dept["id"] if (role_str == "hod" and assigned_dept) else None,
+            "department_code": assigned_dept["code"] if (role_str == "hod" and assigned_dept) else None,
             "status": "Active" if raw_active else "Inactive",
             "hire_date": None,
             "class_assigned": None,

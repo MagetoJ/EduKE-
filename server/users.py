@@ -112,6 +112,28 @@ async def create_school_user(
         raise HTTPException(status_code=400, detail="Email already registered")
 
     # 2. Map the frontend role (e.g. 'class_teacher') to standard DB enum (e.g. UserRole.TEACHER)
+    #
+    # Guard against the exact split-brain hod_shared.py was written to
+    # prevent (see its module docstring), but for the CREATE path this time
+    # instead of edit: this form has no department_id field, only a raw
+    # "hod" role string. Previously that string got silently mapped to
+    # plain UserRole.TEACHER below (see map_frontend_role_to_db_role), so
+    # picking "HOD" here looked like it worked (200 OK, new user created)
+    # but never touched academic_departments.hod_id at all -- the new user
+    # became an ordinary teacher, no department was created or reassigned,
+    # and the department's real HOD never changed. HOD appointment must go
+    # through the Departments & HOD Management page, which knows the actual
+    # department_id and enforces the one-HOD-per-department invariant.
+    if data.role.lower().strip() == "hod":
+        raise HTTPException(
+            status_code=400,
+            detail=(
+                "New staff can't be created directly as HOD. Create them as a Teacher "
+                "first, then appoint them HOD of a specific department from the "
+                "Departments & HOD Management page."
+            ),
+        )
+
     mapped_role = map_frontend_role_to_db_role(data.role)
 
     # 3. Create the User with fallback resolution for fields

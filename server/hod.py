@@ -146,8 +146,21 @@ async def get_department_details(
                  "Woodwork", "Metalwork", "Building Construction", "Physical Education"]
     }
 
-    if dept.code in link_keywords_by_code:
-        for keyword in link_keywords_by_code[dept.code]:
+    # Admins can type any custom code when creating a department (e.g.
+    # "HUMSOC" for Humanities & Social Sciences). Matching on strict equality
+    # against the 5 canonical keys meant any custom code silently skipped
+    # BOTH auto-linking loops below -- courses never got department_id set,
+    # so the HOD dashboard showed zero subjects with no error anywhere.
+    # Resolving by "canonical key is contained in the code" instead of
+    # "code equals the canonical key" fixes this for any reasonable custom
+    # code while still matching the plain "MATH"/"LANG"/etc. codes exactly.
+    canonical_code = next(
+        (key for key in link_keywords_by_code if key in (dept.code or "").upper()),
+        None,
+    )
+
+    if canonical_code:
+        for keyword in link_keywords_by_code[canonical_code]:
             await db.execute(
                 update(Course)
                 .where(
@@ -159,8 +172,8 @@ async def get_department_details(
             )
         await db.flush()
 
-    if dept.code in canonical_subjects_by_code:
-        for subject_name in canonical_subjects_by_code[dept.code]:
+    if canonical_code:
+        for subject_name in canonical_subjects_by_code[canonical_code]:
             # Skip if this department already has a course covering this subject
             existing_subject_res = await db.execute(
                 select(Course.id).where(

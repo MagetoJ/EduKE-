@@ -34,6 +34,12 @@ type StaffMember = {
   hire_date: string;
   subject?: string;
   class_assigned?: string;
+  // Only set for actual HODs (pulled from academic_departments.hod_id on the
+  // backend). null/undefined for everyone else -- distinguishes a real
+  // department assignment from the generic "Academics"/"Administration"
+  // placeholder in `department`.
+  department_id?: number | null;
+  department_code?: string | null;
 };
 
 type LeaveRequest = {
@@ -79,6 +85,8 @@ export default function Staff() {
     phone: '',
     role: '',
     department: '',
+    departmentId: null as number | null,
+    departmentCode: null as string | null,
     classAssigned: '',
     subject: '',
     joinDate: '',
@@ -121,7 +129,9 @@ export default function Staff() {
               status: rawStatus.charAt(0).toUpperCase() + rawStatus.slice(1).toLowerCase(),
               avatar_url: String(member.avatar_url || 'https://images.unsplash.com/photo-1506794778202-cad84cf45f1d?w=150&h=150&fit=crop&crop=face'),
               class_assigned: member.class_assigned ? String(member.class_assigned) : undefined,
-              subject: member.subject ? String(member.subject) : undefined
+              subject: member.subject ? String(member.subject) : undefined,
+              department_id: member.department_id != null ? Number(member.department_id) : null,
+              department_code: member.department_code ? String(member.department_code) : null
             }
           })
           setStaff(mappedStaff)
@@ -270,7 +280,9 @@ export default function Staff() {
             status: rawStatus.charAt(0).toUpperCase() + rawStatus.slice(1).toLowerCase(),
             avatar_url: String(member.avatar_url || 'https://images.unsplash.com/photo-1506794778202-cad84cf45f1d?w=150&h=150&fit=crop&crop=face'),
             class_assigned: member.class_assigned ? String(member.class_assigned) : undefined,
-            subject: member.subject ? String(member.subject) : undefined
+            subject: member.subject ? String(member.subject) : undefined,
+            department_id: member.department_id != null ? Number(member.department_id) : null,
+            department_code: member.department_code ? String(member.department_code) : null
           }
         })
         setStaff(mappedStaff)
@@ -294,6 +306,8 @@ export default function Staff() {
       phone: member.phone,
       role: backendRoleFormat,
       department: member.department,
+      departmentId: member.department_id ?? null,
+      departmentCode: member.department_code ?? null,
       classAssigned: member.class_assigned ?? '',
       subject: member.subject ?? '',
       joinDate: member.hire_date ? member.hire_date.split('T')[0] : '',
@@ -354,7 +368,9 @@ export default function Staff() {
           status: rawStatus.charAt(0).toUpperCase() + rawStatus.slice(1).toLowerCase(),
           avatar_url: String(member.avatar_url || 'https://images.unsplash.com/photo-1506794778202-cad84cf45f1d?w=150&h=150&fit=crop&crop=face'),
           class_assigned: member.class_assigned ? String(member.class_assigned) : undefined,
-          subject: member.subject ? String(member.subject) : undefined
+          subject: member.subject ? String(member.subject) : undefined,
+          department_id: member.department_id != null ? Number(member.department_id) : null,
+          department_code: member.department_code ? String(member.department_code) : null
         }
       })
       setStaff(mappedStaff)
@@ -456,7 +472,6 @@ export default function Staff() {
                         <SelectItem value="class_teacher">Class Teacher</SelectItem>
                         <SelectItem value="registrar">Registrar</SelectItem>
                         <SelectItem value="exam_officer">Exam Officer</SelectItem>
-                        <SelectItem value="hod">HOD</SelectItem>
                         <SelectItem value="timetable_manager">Timetable Manager</SelectItem>
                         <SelectItem value="transport_manager">Transport Manager</SelectItem>
                         <SelectItem value="boarding_master">Boarding Master</SelectItem>
@@ -469,6 +484,13 @@ export default function Staff() {
                         <SelectItem value="librarian">Librarian</SelectItem>
                       </SelectContent>
                     </Select>
+                    <p className="text-xs text-muted-foreground">
+                      To appoint a HOD, create them as a Teacher here, then assign them from the{' '}
+                      <Link to="/dashboard/departments" className="text-primary underline underline-offset-2">
+                        Departments &amp; HOD Management
+                      </Link>{' '}
+                      page.
+                    </p>
                   </div>
                   <div className="space-y-2">
                     <Label htmlFor="department">Department</Label>
@@ -639,19 +661,36 @@ export default function Staff() {
                   </div>
                   <div className="space-y-2">
                     <Label htmlFor="editDepartment">Department</Label>
-                    <Select value={editStaffForm.department} onValueChange={(value) => handleEditStaffSelectChange('department', value)}>
-                      <SelectTrigger id="editDepartment">
-                        <SelectValue placeholder="Select department" />
-                      </SelectTrigger>
-                      <SelectContent>
-                        <SelectItem value="Mathematics">Mathematics</SelectItem>
-                        <SelectItem value="Languages">Languages</SelectItem>
-                        <SelectItem value="Sciences">Sciences</SelectItem>
-                        <SelectItem value="Humanities">Humanities</SelectItem>
-                        <SelectItem value="Technical & Applied Sciences">Technical & Applied Sciences</SelectItem>
-                        <SelectItem value="Administration">Administration</SelectItem>
-                      </SelectContent>
-                    </Select>
+                    {editStaffForm.role === 'hod' ? (
+                      // HOD department assignment is owned by academic_departments.hod_id,
+                      // set via Departments & HOD Management. Show it read-only here so
+                      // editing a HOD's other details doesn't drift out of sync with (or
+                      // overwrite) that real assignment.
+                      <div className="flex h-9 items-center justify-between rounded-md border bg-muted/40 px-3 text-sm">
+                        <span>
+                          {editStaffForm.departmentId
+                            ? `${editStaffForm.department}${editStaffForm.departmentCode ? ` (${editStaffForm.departmentCode})` : ''}`
+                            : 'Not assigned to a department yet'}
+                        </span>
+                        <Link to="/dashboard/departments" className="text-xs text-primary underline underline-offset-2 whitespace-nowrap ml-2">
+                          Manage on Departments page
+                        </Link>
+                      </div>
+                    ) : (
+                      <Select value={editStaffForm.department} onValueChange={(value) => handleEditStaffSelectChange('department', value)}>
+                        <SelectTrigger id="editDepartment">
+                          <SelectValue placeholder="Select department" />
+                        </SelectTrigger>
+                        <SelectContent>
+                          <SelectItem value="Mathematics">Mathematics</SelectItem>
+                          <SelectItem value="Languages">Languages</SelectItem>
+                          <SelectItem value="Sciences">Sciences</SelectItem>
+                          <SelectItem value="Humanities">Humanities</SelectItem>
+                          <SelectItem value="Technical & Applied Sciences">Technical & Applied Sciences</SelectItem>
+                          <SelectItem value="Administration">Administration</SelectItem>
+                        </SelectContent>
+                      </Select>
+                    )}
                   </div>
                 </div>
 
