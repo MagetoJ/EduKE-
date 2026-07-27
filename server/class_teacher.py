@@ -80,6 +80,36 @@ async def get_managed_stream_details(
         ]
     }
 
+@router.get("/attendance")
+async def get_attendance_for_date(
+    date: date,
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_user)
+):
+    """Returns already-recorded attendance for the class teacher's stream on
+    a given date, so the roll register can pre-fill instead of starting blank."""
+    assignment = await get_managed_class(current_user.id, db)
+
+    result = await db.execute(
+        select(DailyAttendance)
+        .join(Student, Student.id == DailyAttendance.student_id)
+        .where(
+            DailyAttendance.school_id == assignment.school_id,
+            DailyAttendance.date == date,
+            Student.grade == assignment.grade_level,
+            Student.stream_section == assignment.stream_section,
+        )
+    )
+    records = result.scalars().all()
+    return {
+        "date": date.isoformat(),
+        "entries": [
+            {"student_id": r.student_id, "status": r.status, "remarks": r.remarks}
+            for r in records
+        ],
+    }
+
+
 @router.post("/attendance/batch")
 async def submit_batch_attendance(
     payload: AttendanceBatchPayload, 

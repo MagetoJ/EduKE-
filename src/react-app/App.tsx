@@ -31,6 +31,7 @@ import ParentDashboard from "@/pages/ParentDashboard";
 import StudentDashboard from "@/pages/StudentDashboard";
 import TeacherDashboard from "@/pages/TeacherDashboard";
 import ClassTeacherDashboard from "@/pages/ClassTeacherDashboard";
+import AttendancePage from "@/pages/Attendance";
 import Subscriptions from "@/pages/Subscriptions";
 import CBC from "@/pages/CBC";
 import Transport from "@/pages/Transport";
@@ -166,6 +167,7 @@ function AppRoutes() {
         <Route path="student-dashboard" element={<StudentDashboard />} />
         <Route path="teacher-dashboard" element={<TeacherDashboard />} />
         <Route path="class-teacher" element={<ClassTeacherDashboard />} />
+        <Route path="attendance" element={<AttendancePage />} />
         <Route path="cbc" element={<CBC />} />
         <Route path="transport" element={<Transport />} />
         <Route path="boarding" element={<Boarding />} />

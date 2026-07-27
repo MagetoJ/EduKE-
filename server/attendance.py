@@ -6,7 +6,8 @@ from pydantic import BaseModel
 from datetime import date as date_type, datetime
 
 from database import get_db
-from models import Attendance, Student, School
+from models import Attendance, Student, School, User
+from models_roles import ClassTeacherAssignment
 from auth import get_current_school, get_current_user
 
 # Prefix aligns with frontend fetch calls to /api/teacher/attendance
@@ -51,6 +52,56 @@ class SaveAttendancePayload(BaseModel):
 
 VALID_STATUSES = ["Present", "Absent", "Late", "Excused", "Not Marked"]
 
+# ─── Helpers ────────────────────────────────────────────────────────────────────
+
+async def _get_scoped_student_query(db: AsyncSession, teacher: User, school_id: int):
+    """
+    Attendance is taken per-homeroom, so scope the roster to the teacher's own
+    managed stream instead of the whole school. Falls back to every class the
+    teacher teaches a subject in if they aren't a class teacher, so the page
+    still works (rather than silently showing nothing) for subject teachers.
+    """
+    from models_roles import ClassSubjectAssignment
+
+    homeroom_res = await db.execute(
+        select(ClassTeacherAssignment).where(
+            ClassTeacherAssignment.teacher_id == teacher.id,
+            ClassTeacherAssignment.school_id == school_id,
+        )
+    )
+    homeroom = homeroom_res.scalar_one_or_none()
+    if homeroom:
+        return select(Student).where(
+            Student.school_id == school_id,
+            Student.grade == homeroom.grade_level,
+            Student.stream_section == homeroom.stream_section,
+            Student.status == "active",
+        ).order_by(Student.last_name)
+
+    subject_res = await db.execute(
+        select(ClassSubjectAssignment.grade_level, ClassSubjectAssignment.stream_section).where(
+            ClassSubjectAssignment.teacher_id == teacher.id,
+            ClassSubjectAssignment.school_id == school_id,
+        )
+    )
+    scopes = subject_res.all()
+    if not scopes:
+        # No known classes for this teacher -- return an impossible filter
+        # rather than the whole school's roster.
+        return select(Student).where(Student.id == -1)
+
+    conditions = [
+        and_(Student.grade == grade, Student.stream_section == stream)
+        for grade, stream in scopes
+    ]
+    from sqlalchemy import or_
+    return select(Student).where(
+        Student.school_id == school_id,
+        Student.status == "active",
+        or_(*conditions),
+    ).order_by(Student.last_name)
+
+
 # ─── Routes ─────────────────────────────────────────────────────────────────────
 
 @router.get("/roster")
@@ -62,17 +113,16 @@ async def get_attendance_roster(
 ):
     """
     GET /api/teacher/attendance/roster?date=YYYY-MM-DD
-    Returns all students tied to the current school tenant with their attendance statuses.
+    Returns the students in the current teacher's own homeroom/classes, with
+    their attendance status for the given date.
     """
+    teacher, _ = token_data
     try:
         roster_date = date_type.fromisoformat(date) if date else datetime.utcnow().date()
     except (ValueError, TypeError):
         roster_date = datetime.utcnow().date()
 
-    # Get all students for this school ordered alphabetically
-    students_result = await db.execute(
-        select(Student).where(Student.school_id == current_school.id).order_by(Student.last_name)
-    )
+    students_result = await db.execute(await _get_scoped_student_query(db, teacher, current_school.id))
     students = students_result.scalars().all()
 
     # Get existing logs for the selected date
@@ -94,7 +144,7 @@ async def get_attendance_roster(
             "id": sid,
             "name": f"{s.first_name} {s.last_name}",
             "grade": getattr(s, "grade", None) or "",
-            "classSection": getattr(s, "class_section", None) or "",
+            "classSection": getattr(s, "stream_section", None) or "",
             "status": att.status.capitalize() if att else "Not Marked",
             "recordedAt": att.date.isoformat() if att else None,
         })
@@ -113,26 +163,27 @@ async def save_teacher_attendance(
     payload: SaveAttendancePayload,
     db: AsyncSession = Depends(get_db),
     current_school: School = Depends(get_current_school),
+    token_data: tuple = Depends(get_current_user),
 ):
     """
     POST /api/teacher/attendance
     Upserts one Attendance record per student per date to avoid duplicates on re-submission.
     """
+    teacher, _ = token_data
     try:
         record_date = date_type.fromisoformat(payload.date)
     except ValueError:
         record_date = datetime.utcnow().date()
 
-    # Tenant sandbox check: ensure student IDs belong to this school
-    valid_result = await db.execute(
-        select(Student.id).where(Student.school_id == current_school.id)
-    )
-    valid_ids = {row[0] for row in valid_result.all()}
+    # Tenant + roster sandbox check: only allow marking students in this
+    # teacher's own scope, not arbitrary student IDs from elsewhere.
+    scoped_result = await db.execute(await _get_scoped_student_query(db, teacher, current_school.id))
+    valid_ids = {s.id for s in scoped_result.scalars().all()}
 
     saved = 0
     for entry in payload.attendance:
         if entry.studentId not in valid_ids:
-            continue  # Silently drop data pollution across sub-tenants
+            continue  # Silently drop data pollution across sub-tenants / other classes
 
         status = entry.status.capitalize()
         if status not in VALID_STATUSES:
@@ -149,7 +200,7 @@ async def save_teacher_attendance(
             )
         )
         existing = existing_result.scalar_one_or_none()
-        
+
         if existing:
             existing.status = status
         else:
@@ -174,10 +225,8 @@ async def save_teacher_attendance(
     )
     refreshed = {str(a.student_id): a for a in att_result.scalars().all()}
 
-    students_result = await db.execute(
-        select(Student).where(Student.school_id == current_school.id).order_by(Student.last_name)
-    )
-    
+    students_result = await db.execute(await _get_scoped_student_query(db, teacher, current_school.id))
+
     roster = []
     for s in students_result.scalars().all():
         sid = str(s.id)
@@ -186,7 +235,7 @@ async def save_teacher_attendance(
             "id": sid,
             "name": f"{s.first_name} {s.last_name}",
             "grade": getattr(s, "grade", None) or "",
-            "classSection": getattr(s, "class_section", None) or "",
+            "classSection": getattr(s, "stream_section", None) or "",
             "status": att.status.capitalize() if att else "Not Marked",
             "recordedAt": att.date.isoformat() if att else None,
         })

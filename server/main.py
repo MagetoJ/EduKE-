@@ -53,6 +53,14 @@ from departments_admin import router as departments_admin_router
 from bulk_onboard import router as bulk_router
 # ADDED: Import the newly created teacher dashboard router
 from router.teacher_dashboard import router as teacher_dashboard_router
+# ADDED: Lesson planning (schemes of work / lesson plan uploads) for teachers.
+# Imported here (before init_db() runs at startup) so LessonPlan is
+# registered on the shared Base.metadata and gets created by create_all().
+from models_lesson_plan import LessonPlan  # noqa: F401
+from lesson_plans import router as lesson_plans_router
+# ADDED: Guardian contacts + teacher-to-guardian message log (new tables only).
+from models_messaging import GuardianContact, GuardianMessage  # noqa: F401
+from messaging import router as messaging_router
 
 # Setup logging
 logging.basicConfig(level=logging.INFO)
@@ -99,6 +107,8 @@ app.include_router(hod_router, dependencies=[Depends(get_current_user)])
 app.include_router(departments_admin_router, dependencies=[Depends(get_current_user)])
 app.include_router(teacher_progress_router)
 app.include_router(bulk_router)
+app.include_router(lesson_plans_router, dependencies=[Depends(get_current_user)])
+app.include_router(messaging_router, dependencies=[Depends(get_current_user)])
 
 # ADDED: Register the teacher dashboard routes to your FastAPI app
 app.include_router(

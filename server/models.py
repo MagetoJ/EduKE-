@@ -644,7 +644,19 @@ class Assignment(Base):
     school_id = Column(Integer, ForeignKey("schools.id", ondelete="CASCADE"), nullable=False)
     course_id = Column(Integer, ForeignKey("courses.id", ondelete="CASCADE"), nullable=False)
     teacher_id = Column(Integer, ForeignKey("users.id", ondelete="CASCADE"), nullable=False)
-    # ... rest of your assignment column fields ...
+
+    title = Column(String(255), nullable=False)
+    description = Column(Text, nullable=True)
+    instructions = Column(Text, nullable=True)
+    assignment_type = Column(String(30), nullable=False, default="homework")  # homework, project, quiz, essay...
+    total_marks = Column(Integer, nullable=False, default=100)
+    due_date = Column(DateTime, nullable=True)
+    status = Column(String(20), nullable=False, default="published")  # published, closed
+    grade_level = Column(String(50), nullable=True)
+    stream_section = Column(String(20), nullable=True)
+
+    created_at = Column(DateTime, default=datetime.utcnow)
+    updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
 
     # --- ADD/RESTORE THIS RELATIONSHIP FOR REVERSE MAPPER COMPLIANCE ---
     course = relationship("Course", back_populates="assignments")

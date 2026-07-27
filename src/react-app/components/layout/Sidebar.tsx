@@ -101,6 +101,12 @@ const navItems: NavItem[] = [
     roles: ['teacher', 'hod', 'class_teacher']
   },
   {
+    title: 'Attendance',
+    href: '/dashboard/attendance',
+    icon: UserCheck,
+    roles: ['teacher', 'hod', 'class_teacher']
+  },
+  {
     title: 'Timetable',
     href: '/dashboard/timetable',
     icon: Calendar,
