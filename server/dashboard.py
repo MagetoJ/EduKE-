@@ -3,16 +3,28 @@ from sqlalchemy import select, func
 from sqlalchemy.ext.asyncio import AsyncSession
 from database import get_db
 from models import Student, Payment, FeeInvoice, User, School, school_users, UserRole, Subject
-from auth import get_current_school, get_current_user
+from auth import get_current_school, get_current_user, require_roles
 
 # Mounted with prefix="/api" in main.py → routes live at /api/dashboard/...
 router = APIRouter(prefix="/dashboard", tags=["Dashboard"])
+
+# These endpoints expose school-wide financial and operational totals
+# (outstanding fees, collected payments, staff counts). Matches the exact
+# role list Dashboard.tsx already gates this fetch behind on the frontend —
+# widening this backend guard to match is closing the gap, not opening one;
+# it deliberately still excludes 'teacher', 'class_teacher', 'parent', 'student'.
+DASHBOARD_MANAGEMENT_ROLES = (
+    "admin", "registrar", "exam_officer", "hod", "transport_manager",
+    "boarding_master", "cbc_coordinator", "hr_manager",
+    "admission_officer", "nurse", "super_admin",
+)
 
 
 @router.get("/stats")
 async def get_dashboard_stats(
     token_data=Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
+    _: User = Depends(require_roles(*DASHBOARD_MANAGEMENT_ROLES)),
 ):
     """
     GET /api/dashboard/stats
@@ -95,6 +107,7 @@ async def get_dashboard_stats(
 async def get_financial_summary(
     db: AsyncSession = Depends(get_db),
     current_school=Depends(get_current_school),
+    _: User = Depends(require_roles(*DASHBOARD_MANAGEMENT_ROLES)),
 ):
     """Total collected and outstanding fee amounts for the school"""
     total_collected = (
@@ -126,6 +139,7 @@ async def get_school_analytics(
     db: AsyncSession = Depends(get_db),
     current_school=Depends(get_current_school),
     token_data=Depends(get_current_user),
+    _: User = Depends(require_roles(*DASHBOARD_MANAGEMENT_ROLES)),
 ):
     """High-level school analytics for admin reporting"""
     total_students = (

@@ -3,13 +3,42 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select
 from database import get_db
 from models import LeaveRequest, User, School, Notification
-from auth import get_current_school, get_current_user
+from auth import get_current_school, get_current_user, require_roles
 from pydantic import BaseModel, model_validator
 from typing import Optional
 from datetime import date as datetime_date
 from reporting import get_teacher_hods
 
 router = APIRouter(prefix="/leave-requests", tags=["Leave Management"])
+
+# Anyone who can actually hold a job at the school and therefore request
+# leave. Deliberately excludes "student" and "parent".
+STAFF_ROLES = (
+    "admin", "teacher", "class_teacher", "hod", "staff", "registrar",
+    "exam_officer", "timetable_manager", "transport_manager",
+    "boarding_master", "cbc_coordinator", "hr_manager",
+    "admission_officer", "nurse", "counselor", "librarian", "super_admin",
+)
+
+# Who's allowed to see the full leave-request list. Matches the role set
+# Dashboard.tsx already relies on when it calls this endpoint alongside
+# /api/dashboard/stats — widening this beyond "admin" is intentional, not
+# a security relaxation, since these are all school-management roles.
+LEAVE_VIEW_ROLES = (
+    "admin", "registrar", "exam_officer", "hod", "transport_manager",
+    "boarding_master", "cbc_coordinator", "hr_manager",
+    "admission_officer", "nurse", "super_admin",
+)
+
+# Who can actually approve/reject a leave request. Deliberately narrower
+# than LEAVE_VIEW_ROLES — being able to see the list isn't the same as
+# being an approver. NOTE: the frontend's accessControl.ts currently lets
+# 'teacher' load the /dashboard/leave page too; if Leave.tsx shows an
+# approve/reject button to teachers, that button will now 403 against
+# this guard. Worth checking Leave.tsx's conditional rendering — a
+# teacher being able to approve leave requests (including their own)
+# would be its own bug independent of this fix.
+APPROVER_ROLES = ("admin", "hod", "hr_manager", "super_admin")
 
 # --- Schemas ---
 class LeaveRequestCreate(BaseModel):
@@ -50,9 +79,10 @@ class LeaveStatusUpdate(BaseModel):
 @router.get("/")
 async def get_leave_requests(
     school: School = Depends(get_current_school),
-    db: AsyncSession = Depends(get_db)
+    db: AsyncSession = Depends(get_db),
+    _: User = Depends(require_roles(*LEAVE_VIEW_ROLES)),
 ):
-    """Fetch leave requests for the current school"""
+    """Fetch leave requests for the current school (management view only)"""
     query = select(LeaveRequest, User.full_name).join(User, LeaveRequest.user_id == User.id).where(
         LeaveRequest.school_id == school.id
     ).order_by(LeaveRequest.created_at.desc())
@@ -81,7 +111,8 @@ async def create_leave_request(
     data: LeaveRequestCreate,
     token_data: tuple = Depends(get_current_user),  # Receives authentication dependency data tuple safely
     current_school: School = Depends(get_current_school),
-    db: AsyncSession = Depends(get_db)
+    db: AsyncSession = Depends(get_db),
+    _: User = Depends(require_roles(*STAFF_ROLES)),
 ):
     """Submit a new leave request for a staff member belonging to the school node"""
     # Safely unpack the unified User model from the authorization dependency payload tuple
@@ -142,9 +173,10 @@ async def update_leave_status(
     request_id: int,
     data: LeaveStatusUpdate,
     school: School = Depends(get_current_school),
-    db: AsyncSession = Depends(get_db)
+    db: AsyncSession = Depends(get_db),
+    _: User = Depends(require_roles(*APPROVER_ROLES)),
 ):
-    """Approve or Deny a leave request (Admin workflow)"""
+    """Approve or Deny a leave request (Admin/HOD workflow)"""
     query = select(LeaveRequest).where(
         LeaveRequest.id == request_id,
         LeaveRequest.school_id == school.id

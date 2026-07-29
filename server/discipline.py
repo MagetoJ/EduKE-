@@ -6,10 +6,19 @@ from pydantic import BaseModel
 from datetime import date as date_type, datetime
 
 from database import get_db
-from models import Student, School, DisciplineRecord
-from auth import get_current_school, get_current_user
+from models import Student, School, DisciplineRecord, User
+from auth import get_current_school, get_current_user, require_roles
 
 router = APIRouter(prefix="/discipline", tags=["Discipline"])
+
+# Staff who can view/log discipline records. Deliberately excludes
+# "student" and "parent" — this endpoint returns every student's record
+# school-wide, not just one child's.
+DISCIPLINE_STAFF_ROLES = ("admin", "teacher", "class_teacher", "hod", "super_admin", "counselor")
+
+# Who can change a record's status (Open -> Resolved/Escalated) — a
+# narrower, approval-type action.
+DISCIPLINE_APPROVER_ROLES = ("admin", "hod", "super_admin", "counselor")
 
 # ─── Schemas ────────────────────────────────────────────────────────────────────
 
@@ -27,8 +36,9 @@ class DisciplineCreate(BaseModel):
 async def list_discipline_records(
     db: AsyncSession = Depends(get_db),
     current_school: School = Depends(get_current_school),
+    _: User = Depends(require_roles(*DISCIPLINE_STAFF_ROLES)),
 ):
-    """List all discipline records for this school, newest first"""
+    """List all discipline records for this school, newest first (staff only)"""
     result = await db.execute(
         select(DisciplineRecord)
         .where(DisciplineRecord.school_id == current_school.id)
@@ -61,6 +71,7 @@ async def create_discipline_record(
     db: AsyncSession = Depends(get_db),
     current_school: School = Depends(get_current_school),
     token_data: tuple = Depends(get_current_user),
+    _roles: User = Depends(require_roles(*DISCIPLINE_STAFF_ROLES)),
 ):
     """Teacher records a new disciplinary incident"""
     user, _ = token_data
@@ -117,6 +128,7 @@ async def update_discipline_status(
     payload: dict,
     db: AsyncSession = Depends(get_db),
     current_school: School = Depends(get_current_school),
+    _: User = Depends(require_roles(*DISCIPLINE_APPROVER_ROLES)),
 ):
     """Update status of a discipline record: Open → Resolved / Escalated"""
     result = await db.execute(

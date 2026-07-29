@@ -8,10 +8,17 @@ from datetime import date as date_type, datetime
 from database import get_db
 from models import Attendance, Student, School, User
 from models_roles import ClassTeacherAssignment
-from auth import get_current_school, get_current_user
+from auth import get_current_school, get_current_user, require_roles
 
 # Prefix aligns with frontend fetch calls to /api/teacher/attendance
 router = APIRouter(prefix="/teacher/attendance", tags=["Attendance"])
+
+# _get_scoped_student_query already restricts results to the calling
+# teacher's own homeroom/subject classes, so a parent/student account
+# hitting these routes wouldn't see anyone else's data — but they
+# shouldn't be able to call a teacher-facing endpoint at all. This guard
+# is defense-in-depth, not a fix for a data leak.
+ATTENDANCE_STAFF_ROLES = ("teacher", "class_teacher", "hod", "admin", "super_admin")
 
 # ─── Schemas ────────────────────────────────────────────────────────────────────
 
@@ -110,6 +117,7 @@ async def get_attendance_roster(
     db: AsyncSession = Depends(get_db),
     current_school: School = Depends(get_current_school),
     token_data: tuple = Depends(get_current_user),
+    _: User = Depends(require_roles(*ATTENDANCE_STAFF_ROLES)),
 ):
     """
     GET /api/teacher/attendance/roster?date=YYYY-MM-DD
@@ -164,6 +172,7 @@ async def save_teacher_attendance(
     db: AsyncSession = Depends(get_db),
     current_school: School = Depends(get_current_school),
     token_data: tuple = Depends(get_current_user),
+    _: User = Depends(require_roles(*ATTENDANCE_STAFF_ROLES)),
 ):
     """
     POST /api/teacher/attendance
