@@ -10,7 +10,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '.
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '../components/ui/tabs'
 import { useAuth, useApi } from '../contexts/AuthContext'
 import type { User as UserType } from '../contexts/AuthContext'
-import { useNavigate } from 'react-router'
+import { useNavigate } from 'react-router-dom'
 
 // --- Types based on your API routes ---
 type Course = {

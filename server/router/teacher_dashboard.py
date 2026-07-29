@@ -66,6 +66,39 @@ class TeacherDashboardOverview(BaseModel):
     recent_escalations: List[EscalationSummary]
     recent_leave_requests: List[LeaveRequestSummary]
 
+# --- HELPERS ---
+
+async def _get_teacher_class_scopes(db: AsyncSession, teacher_id: int, school_id: int):
+    """
+    Returns (homeroom_scope, subject_scopes) for a teacher.
+    homeroom_scope: (grade_level, stream_section) tuple, or None if not a class teacher.
+    subject_scopes: list of (grade_level, stream_section) tuples the teacher teaches into.
+
+    Used by messaging.py to check whether a teacher is allowed to manage
+    guardians/messages for a given student (homeroom or subject-taught classes only).
+    """
+    homeroom_query = await db.execute(
+        select(ClassTeacherAssignment).where(
+            ClassTeacherAssignment.teacher_id == teacher_id,
+            ClassTeacherAssignment.school_id == school_id
+        )
+    )
+    homeroom = homeroom_query.scalar_one_or_none()
+    homeroom_scope = (homeroom.grade_level, homeroom.stream_section) if homeroom else None
+
+    subjects_query = await db.execute(
+        select(ClassSubjectAssignment).where(
+            ClassSubjectAssignment.teacher_id == teacher_id,
+            ClassSubjectAssignment.school_id == school_id
+        )
+    )
+    subject_scopes = [
+        (a.grade_level, a.stream_section)
+        for a in subjects_query.scalars().all()
+    ]
+
+    return homeroom_scope, subject_scopes
+
 # --- API ROUTES ---
 
 @router.get("/overview", response_model=TeacherDashboardOverview)

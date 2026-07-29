@@ -21,7 +21,7 @@ import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, D
 import { Label } from '../components/ui/label'
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '../components/ui/select'
 import { useApi } from '../contexts/AuthContext'
-import { useNavigate } from 'react-router'
+import { useNavigate } from 'react-router-dom'
 import { Badge } from '../components/ui/badge'
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from '../components/ui/dropdown-menu'
 import { BulkOnboardDialog } from '../components/BulkOnboardDialog'

@@ -14,7 +14,7 @@ import {
   Accessibility
 } from 'lucide-react'
 import { useApi, useAuth } from '../contexts/AuthContext'
-import { useNavigate, Navigate } from 'react-router' // Added Navigate import
+import { useNavigate, Navigate } from 'react-router-dom' // Added Navigate import
 
 type SchoolRecord = {
   id: string

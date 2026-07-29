@@ -1,6 +1,6 @@
 import { type ChangeEvent, type FormEvent, useEffect, useState } from 'react'
 import { Plus, Search, Filter, UserCheck, Mail, Phone, Calendar, CheckCircle, XCircle, DollarSign, Pencil, Trash2, Building } from 'lucide-react'
-import { Link } from 'react-router'
+import { Link } from 'react-router-dom'
 import { Button } from '../components/ui/button'
 import { Input } from '../components/ui/input'
 import { Card, CardContent, CardHeader, CardTitle } from '../components/ui/card'
