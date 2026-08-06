@@ -3,7 +3,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select, update
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import selectinload
-from typing import Optional
+from typing import Optional, Dict
 from sqlalchemy import select, func
 from pydantic import BaseModel
 
@@ -27,11 +27,26 @@ class DepartmentPayload(BaseModel):
 
 
 async def _serialize(db: AsyncSession, dept: AcademicDepartment) -> dict:
+    """Single-department serializer — used by create/update, which only ever
+    handle one row, so one extra query here isn't the N+1 problem."""
     hod_name = None
     if dept.hod_id:
         result = await db.execute(select(User.full_name).where(User.id == dept.hod_id))
         hod_name = result.scalar_one_or_none()
 
+    return {
+        "id": dept.id,
+        "name": dept.name,
+        "code": dept.code,
+        "description": dept.description,
+        "hod_id": dept.hod_id,
+        "hod_name": hod_name,
+    }
+
+
+def _serialize_with_name(dept: AcademicDepartment, hod_name: Optional[str]) -> dict:
+    """List-safe serializer — takes a pre-fetched hod_name so callers can
+    batch-load all HOD names in one query instead of one query per row."""
     return {
         "id": dept.id,
         "name": dept.name,
@@ -64,7 +79,18 @@ async def list_departments(
         select(AcademicDepartment).where(AcademicDepartment.school_id == target_school_id)
     )
     departments = result.scalars().all()
-    return [await _serialize(db, dept) for dept in departments]
+
+    # Batch-load every HOD's name in a single query instead of firing one
+    # query per department (that N+1 pattern was the cause of the list
+    # endpoint getting slower every time a department was added, since the
+    # frontend refetches this whole list after every create).
+    hod_ids = {d.hod_id for d in departments if d.hod_id}
+    hod_names: Dict[int, str] = {}
+    if hod_ids:
+        hod_res = await db.execute(select(User.id, User.full_name).where(User.id.in_(hod_ids)))
+        hod_names = {uid: name for uid, name in hod_res.all()}
+
+    return [_serialize_with_name(dept, hod_names.get(dept.hod_id)) for dept in departments]
 
 
 @router.post("")

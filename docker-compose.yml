@@ -1,0 +1,36 @@
+services:
+  # 1. The PostgreSQL Database
+  db:
+    image: postgres:15-alpine
+    environment:
+      POSTGRES_USER: myuser
+      POSTGRES_PASSWORD: secretpassword
+      POSTGRES_DB: mydatabase
+    ports:
+      - "5432:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+
+  # 2. The FastAPI Backend (Named 'server' to match the dependency)
+  server:
+    build: ./server
+    ports:
+      - "3001:3001"
+    environment:
+      - DATABASE_URL=postgresql+asyncpg://edukedb_user:ea1jB4FNi7Uj3UBEuIQffc5Ji7NLUFt6@dpg-d975k89o3t8c73a1uad0-a.oregon-postgres.render.com/edukedb
+    depends_on:
+      - db
+
+  # 3. The React Frontend
+  # 3. The React Frontend
+  frontend:
+    build: 
+      context: .
+      dockerfile: ./src/react-app/Dockerfile
+    ports:
+      - "80:80" 
+    depends_on:
+      - server
+# Define the persistent volume for the database
+volumes:
+  postgres_data:

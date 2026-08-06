@@ -1,7 +1,7 @@
 from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select
-from typing import Optional
+from typing import Optional, Dict
 from pydantic import BaseModel
 from datetime import date as date_type, datetime
 
@@ -46,10 +46,19 @@ async def list_discipline_records(
     )
     records = result.scalars().all()
 
+    # Batch-load all involved students in ONE query instead of one query per
+    # record -- this was the same N+1 pattern found elsewhere in the app,
+    # and it's what made this list slower every time a new record was added
+    # (the frontend refetches this whole list right after every create).
+    student_ids = {r.student_id for r in records}
+    students_by_id: Dict[int, Student] = {}
+    if student_ids:
+        stud_res = await db.execute(select(Student).where(Student.id.in_(student_ids)))
+        students_by_id = {s.id: s for s in stud_res.scalars().all()}
+
     data = []
     for r in records:
-        stud = await db.execute(select(Student).where(Student.id == r.student_id))
-        s = stud.scalar_one_or_none()
+        s = students_by_id.get(r.student_id)
         data.append({
             "id":            r.id,
             "student_id":    r.student_id,

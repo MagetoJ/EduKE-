@@ -690,25 +690,44 @@ async def get_department_staff_roster(
     teachers_res = await db.execute(teachers_query)
     teachers = teachers_res.scalars().all()
 
+    teacher_ids = [t.id for t in teachers]
+
+    # Batch-load every department course taught by any of these teachers in
+    # ONE query, then group by teacher_id in Python -- this replaces the old
+    # per-teacher courses_query + periods_query pair, which meant every page
+    # load/refetch of this roster fired 2 extra DB round trips per teacher
+    # (the exact N+1 pattern that made adding a new teacher to the roster
+    # feel like a long reload, since the frontend refetches this list right
+    # after every add).
+    courses_by_teacher: Dict[int, list] = {t_id: [] for t_id in teacher_ids}
+    all_course_ids = []
+    if teacher_ids:
+        courses_res = await db.execute(
+            select(Course).where(
+                Course.teacher_id.in_(teacher_ids),
+                Course.department_id == dept.id,
+            )
+        )
+        for c in courses_res.scalars().all():
+            courses_by_teacher[c.teacher_id].append(c)
+            all_course_ids.append(c.id)
+
+    # Batch-load period counts for every teacher in ONE grouped query.
+    periods_by_teacher: Dict[int, int] = {}
+    if teacher_ids and all_course_ids:
+        periods_res = await db.execute(
+            select(TimetableSlot.teacher_id, func.count(TimetableSlot.id))
+            .where(
+                TimetableSlot.teacher_id.in_(teacher_ids),
+                TimetableSlot.subject_id.in_(all_course_ids),
+            )
+            .group_by(TimetableSlot.teacher_id)
+        )
+        periods_by_teacher = {t_id: count for t_id, count in periods_res.all()}
+
     roster_data = []
     for t in teachers:
-        courses_query = (
-            select(Course)
-            .where(Course.teacher_id == t.id, Course.department_id == dept.id)
-        )
-        courses_res = await db.execute(courses_query)
-        department_courses = courses_res.scalars().all()
-
-        course_ids = [c.id for c in department_courses]
-        periods_count = 0
-        if course_ids:
-            periods_query = (
-                select(func.count(TimetableSlot.id))
-                .where(TimetableSlot.teacher_id == t.id, TimetableSlot.subject_id.in_(course_ids))
-            )
-            periods_res = await db.execute(periods_query)
-            periods_count = periods_res.scalar() or 0
-
+        department_courses = courses_by_teacher.get(t.id, [])
         roster_data.append({
             "id": t.id,
             "name": t.full_name,
@@ -717,7 +736,7 @@ async def get_department_staff_roster(
                 {"id": c.id, "name": c.name, "code": c.code, "grade": c.grade}
                 for c in department_courses
             ],
-            "department_periods": periods_count
+            "department_periods": periods_by_teacher.get(t.id, 0)
         })
 
     return {
