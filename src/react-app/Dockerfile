@@ -4,13 +4,16 @@
 FROM node:20-alpine AS build
 WORKDIR /app
 
-# Copy package files and install dependencies
-COPY package*.json ./
-RUN npm install
+# Enable pnpm via corepack (bundled with Node 20)
+RUN corepack enable && corepack prepare pnpm@latest --activate
+
+# Copy package files (including the lockfile) and install dependencies
+COPY package.json pnpm-lock.yaml ./
+RUN pnpm install --frozen-lockfile
 
 # Copy the rest of the code and build the project
 COPY . .
-RUN npm run build
+RUN pnpm run build
 
 # Stage 2: Serve with Nginx
 FROM nginx:alpine

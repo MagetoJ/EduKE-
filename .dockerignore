@@ -1,8 +1,20 @@
-# Root .dockerignore
-node_modules/
-dist/
-build/
-venv/
-__pycache__/
-.git/
-.env
+# Backend + data (frontend build never needs these)
+server/
+database/
+
+# Docs, patches, logs — not needed for the build
+*.md
+*.patch
+*.log
+*.txt
+lint_output.txt
+build_output.txt
+
+# Lockfile you're not using (keep only the one matching your package manager)
+pnpm-lock.yaml
+yarn.lock
+
+# Misc local artifacts
+.zencoder/
+simulation_and_moddelling/
+$null
