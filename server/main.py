@@ -61,7 +61,8 @@ from lesson_plans import router as lesson_plans_router
 # ADDED: Guardian contacts + teacher-to-guardian message log (new tables only).
 from models_messaging import GuardianContact, GuardianMessage  # noqa: F401
 from messaging import router as messaging_router
-
+import parents
+import portal_api
 # Setup logging
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
@@ -109,7 +110,8 @@ app.include_router(teacher_progress_router)
 app.include_router(bulk_router)
 app.include_router(lesson_plans_router, dependencies=[Depends(get_current_user)])
 app.include_router(messaging_router, dependencies=[Depends(get_current_user)])
-
+app.include_router(parents.router)
+app.include_router(portal_api.router)
 # ADDED: Register the teacher dashboard routes to your FastAPI app
 app.include_router(
     teacher_dashboard_router,

@@ -59,7 +59,12 @@ def create_access_token(data: dict, school_id: Optional[int] = None, expires_del
     
     encoded_jwt = jwt.encode(to_encode, SECRET_KEY, algorithm=ALGORITHM)
     return encoded_jwt
-
+async def get_current_school(current_user: User = Depends(get_current_user), db: AsyncSession = Depends(get_db)):
+    # Look for school assignment on user, staff, or student
+    ...
+    if not school:
+        raise HTTPException(status_code=403, detail="User is not assigned to an active school")
+    
 async def get_current_user(token: str = Depends(oauth2_scheme), db: AsyncSession = Depends(get_db)):
     """Dependency to validate JWT and return the user and token payload"""
     from models import User

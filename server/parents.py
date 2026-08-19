@@ -1,48 +1,74 @@
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends, HTTPException, status
 from sqlalchemy.ext.asyncio import AsyncSession
-from sqlalchemy import select
+from sqlalchemy import select, func
+from typing import List, Dict, Any, Optional
+
 from database import get_db
-from models import Student, ParentStudentRelation, ExamResult, Attendance
+from models import (
+    User, Student, Attendance, DisciplineRecord, 
+    GradeEntry, ClassProgressReport, Assignment, 
+    AssignmentSubmission, FeeInvoice, Payment, ParentStudentLink, School
+)
 from auth import get_current_user, get_current_school
 
-router = APIRouter(prefix="/api/parents", tags=["Parent Portal"])
+router = APIRouter(prefix="/api/parent", tags=["Parent Portal"])
 
-@router.get("/dashboard")
-async def get_parent_dashboard(
-    db: AsyncSession = Depends(get_db),
-    current_user = Depends(get_current_user),
-    current_school = Depends(get_current_school)
-):
-    # 1. Find all students linked to this parent
-    relations_query = await db.execute(
+async def verify_parent_child_access(
+    parent_id: int, 
+    student_id: int, 
+    school_id: int, 
+    db: AsyncSession
+) -> Student:
+    """Ensure parent is linked to the student and student belongs to current school tenant."""
+    query = (
         select(Student)
-        .join(ParentStudentRelation, Student.id == ParentStudentRelation.student_id)
-        .where(ParentStudentRelation.parent_id == current_user.id, Student.school_id == current_school.id)
+        .join(ParentStudentLink, ParentStudentLink.student_id == Student.id)
+        .where(
+            ParentStudentLink.parent_id == parent_id,
+            Student.id == student_id,
+            Student.school_id == school_id
+        )
     )
-    children = relations_query.scalars().all()
-    
-    dashboard_data = []
-    
-    for child in children:
-        # Fetch recent grades for the child
-        grades_query = await db.execute(
-            select(ExamResult).where(ExamResult.student_id == child.id).order_by(ExamResult.created_at.desc()).limit(5)
+    result = await db.execute(query)
+    student = result.scalar_one_or_none()
+    if not student:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Access denied or student not linked to your account."
         )
-        recent_grades = grades_query.scalars().all()
-        
-        # Fetch attendance summary for the child
-        # (This is simplified; you could aggregate this using func.count)
-        attendance_query = await db.execute(
-            select(Attendance).where(Attendance.student_id == child.id).order_by(Attendance.date.desc()).limit(5)
-        )
-        recent_attendance = attendance_query.scalars().all()
+    return student
 
-        dashboard_data.append({
-            "student_id": child.id,
-            "name": f"{child.first_name} {child.last_name}",
-            "grade": child.grade,
-            "recent_grades": recent_grades,
-            "recent_attendance": recent_attendance
-        })
-        
-    return {"success": True, "data": dashboard_data}
+
+@router.get("/children")
+async def get_parent_children(
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+    current_school: School = Depends(get_current_school)
+):
+    """List all children linked to the logged-in parent."""
+    if current_user.role != "parent":
+        raise HTTPException(status_code=403, detail="Only parent accounts can access this resource.")
+
+    query = (
+        select(Student)
+        .join(ParentStudentLink, ParentStudentLink.student_id == Student.id)
+        .where(
+            ParentStudentLink.parent_id == current_user.id,
+            Student.school_id == current_school.id
+        )
+    )
+    result = await db.execute(query)
+    children = result.scalars().all()
+    
+    return {
+        "success": True,
+        "data": [
+            {
+                "id": c.id,
+                "first_name": c.first_name,
+                "last_name": c.last_name,
+                "grade": c.grade,
+                "admission_number": getattr(c, "admission_number", None)
+            } for c in children
+        ]
+    }

@@ -6,7 +6,7 @@ import enum
 from database import Base
 from models_class_teacher import ClassProgressReport, ProgressReportComment
 from sqlalchemy import Column, Integer, String, Boolean, DateTime, ForeignKey, Text, Float, Enum, func
-
+from models_roles import DepartmentMembership
 # ==================== ENUMS (Borrowed from SmartBiz) ====================
 
 class UserRole(str, enum.Enum):
@@ -714,7 +714,19 @@ class GradeBand(Base):
 
     learning_areas = relationship("LearningArea", back_populates="grade_band")
     courses = relationship("Course", back_populates="grade_band")
+    
+    
+class ParentStudentLink(Base):
+    __tablename__ = "parent_student_links"
 
+    id = Column(Integer, primary_key=True, index=True)
+    parent_id = Column(Integer, ForeignKey("users.id", ondelete="CASCADE"), nullable=False)
+    student_id = Column(Integer, ForeignKey("students.id", ondelete="CASCADE"), nullable=False)
+    relationship_type = Column("relationship", String(50), default="Parent")
+
+    # Relationships using explicit string column names in foreign_keys
+    parent = relationship("User", foreign_keys="[ParentStudentLink.parent_id]")
+    student = relationship("Student", foreign_keys="[ParentStudentLink.student_id]")
 
 class Pathway(Base):
     """STEM, Social Sciences, Arts & Sports Science (Grade 10+ only)"""
