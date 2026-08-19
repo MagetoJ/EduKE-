@@ -1,5 +1,6 @@
 import os 
 import ssl
+from urllib.parse import urlparse, parse_qsl, urlencode, urlunparse
 from sqlalchemy.ext.asyncio import create_async_engine, AsyncSession, async_sessionmaker
 from sqlalchemy.orm import declarative_base
 from tenacity import retry, stop_after_attempt, wait_fixed
@@ -30,6 +31,43 @@ else:
 if DATABASE_URL.startswith("sqlite"):
     engine = create_async_engine(DATABASE_URL, connect_args={"check_same_thread": False})
 else:
+    # Build an SSL context that encrypts the connection without strict hostname/CA
+    # verification (equivalent to libpq's sslmode=require). check_hostname=False
+    # also matters for the Render proxy, since strict verification here has caused
+    # cert-mismatch issues against their pooler in the past.
+    ssl_ctx = ssl.create_default_context()
+    ssl_ctx.check_hostname = False
+    ssl_ctx.verify_mode = ssl.CERT_NONE
+
+    connect_args = {
+        "timeout": 10,          # fail fast on connect instead of hanging
+        "command_timeout": 30,  # fail fast on a hung query instead of hanging forever
+        "ssl": ssl_ctx,
+    }
+
+    # NOTE: We deliberately do NOT force-resolve/override the host to a raw IPv4
+    # address here. Render's Postgres sits behind a routing proxy that relies on
+    # SNI (Server Name Indication) during the TLS handshake to pick the right
+    # backend. SNI is only sent when connecting via hostname — connecting by bare
+    # IP address causes Postgres to reject the connection with
+    # "No SNI information found". Connect via hostname; DNS will resolve it.
+
+    # --- STRIP CONFLICTING SSL QUERY PARAMS ---
+    # If DATABASE_URL contains ?sslmode=... or ?ssl=... in its query string, asyncpg
+    # can raise "parameter cannot be changed now" because we ALSO pass an explicit
+    # ssl context above via connect_args. Having both is a conflict — strip the
+    # URL-embedded ones and let connect_args["ssl"] be the single source of truth.
+    try:
+        parsed_full = urlparse(DATABASE_URL)
+        query_params = dict(parse_qsl(parsed_full.query))
+        if "sslmode" in query_params or "ssl" in query_params:
+            query_params.pop("sslmode", None)
+            query_params.pop("ssl", None)
+            DATABASE_URL = urlunparse(parsed_full._replace(query=urlencode(query_params)))
+    except Exception as strip_err:
+        logger.warning(f"⚠️ Could not strip SSL query params from DATABASE_URL: {strip_err}")
+    # ---------------
+
     engine = create_async_engine(
         DATABASE_URL,
         pool_pre_ping=True,   # test each connection with a lightweight ping before using it;
@@ -40,10 +78,7 @@ else:
                               # connection timeout in the first place
         pool_size=5,
         max_overflow=5,
-        connect_args={
-            "timeout": 10,          # fail fast on connect instead of hanging
-            "command_timeout": 30,  # fail fast on a hung query instead of hanging forever
-        },
+        connect_args=connect_args,
     )
 # ---------------
 
