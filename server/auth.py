@@ -129,7 +129,7 @@ async def get_current_school(token_data: Tuple = Depends(get_current_user), db: 
     # 3. Verify school exists and is active
     school_result = await db.execute(select(School).where(School.id == school_id))
     school = school_result.scalar_one_or_none()
-    if not school or getattr(school, "status", "active") != 'active':
+       if not school or (getattr(school, "status", "active") or "").strip().lower() != 'active':
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN,
             detail="School is inactive or does not exist"
