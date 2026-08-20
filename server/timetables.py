@@ -1,9 +1,10 @@
+import random
+from typing import Optional, List
+from pydantic import BaseModel
 from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select, delete
 from sqlalchemy.orm import selectinload
-from typing import Optional
-from pydantic import BaseModel
 
 from database import get_db
 from models import TimetableSlot, School, Course, User, school_users
@@ -39,6 +40,9 @@ class PeriodCreate(BaseModel):
     start_time: str
     end_time: str
     is_break: bool = False
+
+class GenerateTimetableRequest(BaseModel):
+    clear_existing: bool = True
 
 # ─────────────────────── Helpers ──────────────────────────────────
 
@@ -86,9 +90,7 @@ async def _find_class_assignment(
 
 async def _course_has_any_class_assignments(db: AsyncSession, school_id: int, course_id: int) -> bool:
     """Whether this subject has been routed through the HOD class-assignment
-    workflow at all, anywhere in the school. Used to decide whether to
-    enforce a match (subject is "on the system") or fall back to the old,
-    free-pick behavior (subject predates/skips that workflow)."""
+    workflow at all, anywhere in the school."""
     result = await db.execute(
         select(ClassSubjectAssignment.id)
         .join(Course, ClassSubjectAssignment.course_id == Course.id)
@@ -104,14 +106,7 @@ async def _resolve_teacher_against_assignment(
 ) -> Optional[int]:
     """
     Enforces that a timetable slot's (subject, teacher) can't drift from what
-    the HOD already assigned for that class. Returns the teacher_id to save
-    (auto-filled from the assignment when the caller didn't supply one), or
-    raises a 400 if the caller supplied a teacher that contradicts it.
-
-    If the subject has never been through the class-assignment workflow at
-    all (no HOD has assigned it to any class), this is a no-op that returns
-    teacher_id unchanged -- so schools/subjects not yet using that workflow
-    keep working exactly as before.
+    the HOD already assigned for that class.
     """
     assignment = await _find_class_assignment(db, school_id, course_id, grade_level, stream_section)
 
@@ -125,7 +120,7 @@ async def _resolve_teacher_against_assignment(
                     f"Ask the department HOD to assign a teacher to this class first."
                 ),
             )
-        return teacher_id  # subject isn't on the class-assignment workflow at all -- allow freely
+        return teacher_id
 
     if teacher_id is not None and teacher_id != assignment.teacher_id:
         raise HTTPException(
@@ -145,15 +140,10 @@ async def _check_schedule_conflicts(
     exclude_slot_id: Optional[int] = None,
 ):
     """
-    Checks every kind of double-booking a single slot can cause, all at once:
-      1. Class conflict  -- this grade+stream already has something else at this time.
-      2. Teacher conflict -- this teacher is already teaching a DIFFERENT class at this time.
-      3. Room conflict    -- this room is already in use by a DIFFERENT class at this time
-                             (only checked when a room was actually specified).
-
-    Previously only #1 was checked, which meant a teacher (or room) could be
-    double-booked across two different grades/streams and nothing would catch it.
-    Raises a 400 with a specific, actionable message for whichever check fails first.
+    Checks every kind of double-booking a single slot can cause:
+      1. Class conflict
+      2. Teacher conflict
+      3. Room conflict
     """
     overlap = (
         TimetableSlot.school_id == school_id,
@@ -167,7 +157,7 @@ async def _check_schedule_conflicts(
             q = q.where(TimetableSlot.id != exclude_slot_id)
         return q
 
-    # 1. Class conflict (same grade + stream)
+    # 1. Class conflict
     class_q = _exclude(select(TimetableSlot).where(
         *overlap,
         TimetableSlot.grade_level == grade_level,
@@ -179,7 +169,7 @@ async def _check_schedule_conflicts(
             detail="Schedule conflict: another subject is already at this time for this class.",
         )
 
-    # 2. Teacher conflict (same teacher, any other class)
+    # 2. Teacher conflict
     if teacher_id:
         teacher_q = _exclude(select(TimetableSlot).where(*overlap, TimetableSlot.teacher_id == teacher_id))
         clash = (await db.execute(teacher_q)).scalar_one_or_none()
@@ -193,7 +183,7 @@ async def _check_schedule_conflicts(
                 ),
             )
 
-    # 3. Room conflict (same room, any other class) -- skip if no room given
+    # 3. Room conflict
     if room and room.strip():
         room_q = _exclude(select(TimetableSlot).where(*overlap, TimetableSlot.room == room))
         clash = (await db.execute(room_q)).scalar_one_or_none()
@@ -270,12 +260,6 @@ async def create_period(data: PeriodCreate):
     }
 
 # ─────────────────── Class-assignment lookup route ───────────────
-# Powers the timetable builder's subject/teacher picker: instead of letting
-# whoever builds the timetable re-pick a teacher freely (which can silently
-# drift from what the HOD already assigned), the frontend fetches the real
-# (subject, teacher) pairs the HOD approved for the grade/stream being
-# scheduled, scoped to the WHOLE school (unlike /api/hod/class-assignments,
-# which is scoped to one HOD's own department).
 
 @router.get("/class-assignments", response_model=dict)
 @router.get("/class-assignments/", response_model=dict)
@@ -318,6 +302,157 @@ async def get_timetable_class_assignments(
             }
             for r in rows
         ],
+    }
+
+# ────────────────────── Automatic Generation ──────────────────────
+
+@router.post("/generate", response_model=dict)
+@router.post("/generate/", response_model=dict)
+async def generate_automatic_timetable(
+    payload: Optional[GenerateTimetableRequest] = None,
+    db: AsyncSession = Depends(get_db),
+    current_school: School = Depends(get_current_school),
+    token_data=Depends(get_current_user),
+):
+    user = token_data[0]
+    await verify_timetable_manager(db, user, current_school.id)
+
+    should_clear = payload.clear_existing if payload else True
+
+    # Step 1: Wipe existing timetable slots if requested
+    if should_clear:
+        await db.execute(
+            delete(TimetableSlot).where(TimetableSlot.school_id == current_school.id)
+        )
+        await db.commit()
+
+    # Step 2: Fetch HOD-approved class assignments for this school
+    assignment_q = (
+        select(ClassSubjectAssignment)
+        .join(Course, ClassSubjectAssignment.course_id == Course.id)
+        .where(Course.school_id == current_school.id)
+    )
+    assignments = (await db.execute(assignment_q)).scalars().all()
+
+    if not assignments:
+        raise HTTPException(
+            status_code=400,
+            detail="Cannot auto-generate timetable: No HOD-approved class subject assignments found. Please assign subjects to teachers first.",
+        )
+
+    # Step 3: Retrieve or establish time periods
+    period_resp = await get_periods(db=db, current_school=current_school)
+    time_periods = [p for p in period_resp.get("data", []) if not p.get("is_break")]
+
+    if not time_periods:
+        raise HTTPException(
+            status_code=400,
+            detail="Cannot auto-generate timetable: No valid non-break time periods found.",
+        )
+
+    days = ["monday", "tuesday", "wednesday", "thursday", "friday"]
+
+    # Group assignments by class key (grade_level, stream_section)
+    classes_map = {}
+    for assign in assignments:
+        key = (assign.grade_level, assign.stream_section or "")
+        if key not in classes_map:
+            classes_map[key] = []
+        classes_map[key].append(assign)
+
+    created_slots_count = 0
+    failed_assignments_count = 0
+
+    # Local conflict trackers: (day, start, end, identifier)
+    busy_classes = set()
+    busy_teachers = set()
+    busy_rooms = set()
+
+    # Step 4: Run allocation algorithm
+    for (grade_level, stream_section), class_assigns in classes_map.items():
+        # Distribute classes evenly across weekdays
+        for day in days:
+            daily_pool = list(class_assigns)
+            random.shuffle(daily_pool)
+
+            for period in time_periods:
+                start = period["start_time"]
+                end = period["end_time"]
+                class_key = (day, start, end, grade_level, stream_section)
+
+                if class_key in busy_classes:
+                    continue  # Class already scheduled for this period
+
+                # Find an assignment whose teacher and class are free
+                selected = None
+                for assign in daily_pool:
+                    teacher_key = (day, start, end, assign.teacher_id) if assign.teacher_id else None
+                    if teacher_key and teacher_key in busy_teachers:
+                        continue  # Teacher is busy elsewhere
+
+                    selected = assign
+                    break
+
+                if selected:
+                    room_name = f"Room {grade_level} {stream_section}".strip()
+                    room_key = (day, start, end, room_name)
+
+                    if room_key in busy_rooms:
+                        room_name = None  # Clear room if occupied
+
+                    slot = TimetableSlot(
+                        school_id=current_school.id,
+                        subject_id=selected.course_id,
+                        teacher_id=selected.teacher_id,
+                        day_of_week=day,
+                        start_time=start,
+                        end_time=end,
+                        room=room_name,
+                        grade_level=grade_level,
+                        stream_section=stream_section,
+                    )
+                    db.add(slot)
+                    created_slots_count += 1
+
+                    # Update trackers
+                    busy_classes.add(class_key)
+                    if selected.teacher_id:
+                        busy_teachers.add((day, start, end, selected.teacher_id))
+                    if room_name:
+                        busy_rooms.add(room_key)
+                else:
+                    failed_assignments_count += 1
+
+    await db.commit()
+
+    return {
+        "success": True,
+        "message": f"Auto-generated {created_slots_count} timetable slots successfully.",
+        "slots_created": created_slots_count,
+        "unresolvable_slots": failed_assignments_count,
+    }
+
+# ──────────────────────── Clear timetable ──────────────────────────
+
+@router.delete("/clear", response_model=dict)
+@router.delete("/clear/", response_model=dict)
+async def clear_timetable(
+    db: AsyncSession = Depends(get_db),
+    current_school: School = Depends(get_current_school),
+    token_data=Depends(get_current_user),
+):
+    user = token_data[0]
+    await verify_timetable_manager(db, user, current_school.id)
+
+    result = await db.execute(
+        delete(TimetableSlot).where(TimetableSlot.school_id == current_school.id)
+    )
+    await db.commit()
+
+    return {
+        "success": True,
+        "message": "Entire timetable schedule cleared successfully.",
+        "deleted_count": result.rowcount,
     }
 
 # ──────────────────────── Slot routes ────────────────────────────
@@ -408,9 +543,6 @@ async def create_timetable_slot(
 
     stream_section = data.stream_section or ""
 
-    # Resolve the teacher against the HOD's class assignment FIRST, so that if
-    # teacher_id was omitted and auto-filled from the assignment, the conflict
-    # check below checks the real teacher who will end up on this slot.
     resolved_teacher_id = await _resolve_teacher_against_assignment(
         db, current_school.id, data.subject_id, data.grade_level, stream_section, data.teacher_id
     )
@@ -436,7 +568,7 @@ async def create_timetable_slot(
     await db.refresh(slot)
     return {"success": True, "data": {"id": slot.id}, "message": "Timetable slot created"}
 
-# /{slot_id} routes — registered LAST so "periods" isn't swallowed as a param
+# /{slot_id} routes — registered LAST so static routes are not swallowed as params
 
 @router.put("/{slot_id}", response_model=dict)
 @router.put("/{slot_id}/", response_model=dict)
@@ -464,20 +596,12 @@ async def update_timetable_slot(
     for field, value in updates.items():
         setattr(slot, field, value)
 
-    # Re-validate against the class assignment whenever any field that
-    # affects the (subject, class, teacher) match changed, using the slot's
-    # now-updated values so a partial update (e.g. only teacher_id) is
-    # checked against the correct subject/grade/stream too.
     if {"subject_id", "teacher_id", "grade_level", "stream_section"} & updates.keys():
         slot.teacher_id = await _resolve_teacher_against_assignment(
             db, slot.school_id, slot.subject_id, slot.grade_level,
             slot.stream_section or "", slot.teacher_id
         )
 
-    # Re-run the full conflict check (class/teacher/room) whenever any field
-    # that could introduce a new clash changed, using the slot's merged,
-    # post-update values -- excluding itself so it doesn't "conflict" with
-    # its own pre-update row.
     if {"day_of_week", "start_time", "end_time", "grade_level", "stream_section",
         "teacher_id", "room"} & updates.keys():
         await _check_schedule_conflicts(
