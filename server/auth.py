@@ -129,7 +129,7 @@ async def get_current_school(token_data: Tuple = Depends(get_current_user), db: 
     # 3. Verify school exists and is active
     school_result = await db.execute(select(School).where(School.id == school_id))
     school = school_result.scalar_one_or_none()
-       if not school or (getattr(school, "status", "active") or "").strip().lower() != 'active':
+    if not school or (getattr(school, "status", "active") or "").strip().lower() != 'active':
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN,
             detail="School is inactive or does not exist"
@@ -190,7 +190,10 @@ async def get_effective_roles(db: AsyncSession, user_id: int, school_id: int) ->
     return roles
 
 def require_roles(*allowed_roles: str):
-    """Role-based authorization dependency factory."""
+    """
+    Role-based authorization guard for FastAPI endpoints.
+    Allows Super Admins or users possessing any of the allowed roles.
+    """
     normalized_allowed = {r.lower() for r in allowed_roles}
 
     async def role_dependency(
@@ -199,10 +202,10 @@ def require_roles(*allowed_roles: str):
     ):
         user, payload = token_data
 
+        # Super Admin override
         if getattr(user, "is_super_admin", False):
             return user
 
-        # Resolve school ID from token or parent link
         school_id = payload.get("school_id")
         if not school_id:
             current_school = await get_current_school(token_data, db)
@@ -214,13 +217,10 @@ def require_roles(*allowed_roles: str):
 
         effective_roles = await get_effective_roles(db, user.id, school_id)
 
-        if not effective_roles:
-            raise HTTPException(status_code=403, detail="Not authorized for this school")
-
         if not (effective_roles & normalized_allowed):
             raise HTTPException(
-                status_code=403,
-                detail=f"This action requires one of the following roles: {', '.join(sorted(normalized_allowed))}",
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail=f"Action requires one of the following roles: {', '.join(sorted(normalized_allowed))}",
             )
 
         return user

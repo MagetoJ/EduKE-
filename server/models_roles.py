@@ -1,4 +1,5 @@
-from sqlalchemy import Column, Integer, String, ForeignKey, DateTime, UniqueConstraint
+import enum
+from sqlalchemy import Column, Integer, String, ForeignKey, DateTime, UniqueConstraint, Enum as SQLEnum, Boolean
 from sqlalchemy.orm import relationship
 from database import Base
 from datetime import datetime
@@ -61,6 +62,36 @@ class CbcCoordinatorAssignment(Base):
     #  FIX: Change "CbcGradeBand" to "GradeBand" to match the actual class definition in models.py
     grade_band = relationship("GradeBand")
 
+class UserRoleEnum(str, enum.Enum):
+    TEACHER = "teacher"
+    CLASS_TEACHER = "class_teacher"
+    REGISTRAR = "registrar"
+    EXAM_OFFICER = "exam_officer"
+    HOD = "hod"
+    TIMETABLE_MANAGER = "timetable_manager"
+    TRANSPORT_MANAGER = "transport_manager"
+    BOARDING_MASTER = "boarding_master"
+    CBC_COORDINATOR = "cbc_coordinator"
+    HR_MANAGER = "hr_manager"
+    ADMISSION_OFFICER = "admission_officer"
+    NURSE = "nurse"
+    ADMINISTRATOR = "administrator"
+    COUNSELOR = "counselor"
+    LIBRARIAN = "librarian"
+    PARENT = "parent"
+    STUDENT = "student"
+
+class RoleAssignment(Base):
+    __tablename__ = "role_assignments"
+
+    id = Column(Integer, primary_key=True, index=True)
+    user_id = Column(Integer, ForeignKey("users.id", ondelete="CASCADE"), nullable=False)
+    school_id = Column(Integer, ForeignKey("schools.id", ondelete="CASCADE"), nullable=False)
+    role = Column(SQLEnum(UserRoleEnum), nullable=False)
+    is_active = Column(Boolean, default=True)
+
+    user = relationship("User", foreign_keys=[user_id])
+    school = relationship("School", foreign_keys=[school_id])
 
 class ClassSubjectAssignment(Base):
     """

@@ -12,10 +12,11 @@ router = APIRouter(prefix="/api/parent", tags=["Parent Portal"])
 @router.get("/children")
 async def get_parent_children(
     db: AsyncSession = Depends(get_db),
-    current_user: User = Depends(get_current_user),
+    token_data = Depends(get_current_user),
     current_school: School = Depends(get_current_school)
 ):
     """Fetch all student profiles linked to the logged-in parent user."""
+    current_user, _ = token_data
     query = (
         select(Student)
         .join(ParentStudentLink, ParentStudentLink.student_id == Student.id)

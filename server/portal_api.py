@@ -51,10 +51,11 @@ async def authorize_student_or_parent(
 @router.get("/students/me")
 async def get_my_student_profile(
     db: AsyncSession = Depends(get_db),
-    current_user: User = Depends(get_current_user),
+    token_data = Depends(get_current_user),
     current_school: School = Depends(get_current_school)
 ):
     """Endpoint for logged-in Student to fetch their own profile."""
+    current_user, _ = token_data
     if current_user.role != "student":
         raise HTTPException(status_code=403, detail="Only students can access /students/me")
 
@@ -71,10 +72,11 @@ async def get_my_student_profile(
 async def get_student_performance(
     student_id: int,
     db: AsyncSession = Depends(get_db),
-    current_user: User = Depends(get_current_user),
+    token_data = Depends(get_current_user),
     current_school: School = Depends(get_current_school)
 ):
     """Fetches GradeEntry scores and ClassProgressReport remarks uploaded by teachers."""
+    current_user, _ = token_data
     await authorize_student_or_parent(student_id, current_user, current_school, db)
 
     # Fetch Grade Entries (Exams/CATs)
@@ -100,10 +102,11 @@ async def get_student_performance(
 async def get_student_attendance(
     student_id: int,
     db: AsyncSession = Depends(get_db),
-    current_user: User = Depends(get_current_user),
+    token_data = Depends(get_current_user),
     current_school: School = Depends(get_current_school)
 ):
     """Fetches Attendance entries logged by class teachers."""
+    current_user, _ = token_data
     await authorize_student_or_parent(student_id, current_user, current_school, db)
 
     stmt = select(Attendance).where(Attendance.student_id == student_id).order_by(Attendance.date.desc())
@@ -133,10 +136,11 @@ async def get_student_attendance(
 async def get_student_fees(
     student_id: int,
     db: AsyncSession = Depends(get_db),
-    current_user: User = Depends(get_current_user),
+    token_data = Depends(get_current_user),
     current_school: School = Depends(get_current_school)
 ):
     """Fetches Fee Invoices & Payments made for the student."""
+    current_user, _ = token_data
     await authorize_student_or_parent(student_id, current_user, current_school, db)
 
     invoices_stmt = select(FeeInvoice).where(FeeInvoice.student_id == student_id)
@@ -167,10 +171,11 @@ async def get_student_fees(
 @router.get("/my-discipline")
 async def get_my_discipline(
     db: AsyncSession = Depends(get_db),
-    current_user: User = Depends(get_current_user),
+    token_data = Depends(get_current_user),
     current_school: School = Depends(get_current_school)
 ):
     """Fetches discipline records logged by teachers for the current logged-in student or parent's child."""
+    current_user, _ = token_data
     if current_user.role == "student":
         stmt_st = select(Student.id).where(Student.user_id == current_user.id)
         res = await db.execute(stmt_st)
