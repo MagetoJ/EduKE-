@@ -724,7 +724,7 @@ class ParentStudentLink(Base):
     student_id = Column(Integer, ForeignKey("students.id", ondelete="CASCADE"), nullable=False)
     relationship_type = Column("relationship", String(50), default="Parent")
 
-    # Relationships using explicit string column names in foreign_keys
+    # Explicit foreign_keys string prevents class-initialization resolution errors
     parent = relationship("User", foreign_keys="[ParentStudentLink.parent_id]")
     student = relationship("Student", foreign_keys="[ParentStudentLink.student_id]")
 

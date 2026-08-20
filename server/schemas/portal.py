@@ -1,36 +1,28 @@
 from pydantic import BaseModel
 from typing import List, Optional
-from datetime import date, datetime
+from datetime import date
 
-class AttendanceSummary(BaseModel):
+class AttendanceSummarySchema(BaseModel):
     total_days: int
     present_days: int
     absent_days: int
     late_days: int
-    attendance_rate: float
+    percentage: float
 
-class AssignmentPortalView(BaseModel):
+class GradeEntrySchema(BaseModel):
     id: int
-    title: str
-    subject_name: str
-    teacher_name: str
-    due_date: date
-    description: Optional[str]
-    submitted: bool
-    grade_score: Optional[float]
-    teacher_feedback: Optional[str]
+    subject_id: int
+    score: float
+    max_score: float
+    exam_type: str
 
-class CBCAssessmentResponse(BaseModel):
-    subject_name: str
-    assessment_rubric: str
-    teacher_remarks: Optional[str]
+class TeacherRemarkSchema(BaseModel):
+    id: int
     term: int
     year: int
+    remarks: str
 
-class StudentOverviewResponse(BaseModel):
-    student_id: int
-    student_name: str
-    class_name: str
-    attendance: AttendanceSummary
-    recent_assignments: List[AssignmentPortalView]
-    latest_assessments: List[CBCAssessmentResponse]
+class FeeSummarySchema(BaseModel):
+    total_billed: float
+    total_paid: float
+    balance: float

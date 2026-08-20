@@ -1,32 +1,28 @@
+import os
+from datetime import datetime, timedelta
+from typing import Optional, Tuple, Set
+
 from fastapi import Depends, HTTPException, status
 from fastapi.security import OAuth2PasswordBearer
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select
-import os
-from datetime import datetime, timedelta
-from typing import Optional
 from jose import JWTError, jwt
-import bcrypt  # Make sure bcrypt is imported at the top
+import bcrypt
 
 from database import get_db
-# Note: we import models inside the functions to avoid circular imports if models.py also imports auth
-# But here we can import them at top level if models.py doesn't import auth.
-# Checking models.py... it doesn't import auth.
 
 # Configuration
 SECRET_KEY = os.getenv("JWT_SECRET", "your-super-secret-jwt-key-change-this-in-production")
 ALGORITHM = "HS256"
-ACCESS_TOKEN_EXPIRE_MINUTES = 1440  # 24 hours for development convenience
+ACCESS_TOKEN_EXPIRE_MINUTES = 1440  # 24 hours
 
 oauth2_scheme = OAuth2PasswordBearer(tokenUrl="/api/auth/login")
 
-# --- REPLACING BROKEN PASSLIB BCRYPT CONTEXT ---
-# We use the native python-bcrypt library directly to avoid passlib bugs
+# --- Native Bcrypt Password Hashing ---
 
 def verify_password(plain_password: str, hashed_password: str) -> bool:
     """Verifies a plain text password against its hashed counterpart."""
     try:
-        # Convert strings to bytes for bcrypt operation
         password_bytes = plain_password.encode('utf-8')
         hashed_bytes = hashed_password.encode('utf-8')
         return bcrypt.checkpw(password_bytes, hashed_bytes)
@@ -36,12 +32,11 @@ def verify_password(plain_password: str, hashed_password: str) -> bool:
 def get_password_hash(password: str) -> str:
     """Generates a secure bcrypt hash string from a plain text password."""
     password_bytes = password.encode('utf-8')
-    # Generate a salt and hash the password
     salt = bcrypt.gensalt(rounds=12)
     hashed_bytes = bcrypt.hashpw(password_bytes, salt)
-    # Return as a standard UTF-8 string to save in PostgreSQL
     return hashed_bytes.decode('utf-8')
-# -----------------------------------------------
+
+# --- Token Creation & User Extraction ---
 
 def create_access_token(data: dict, school_id: Optional[int] = None, expires_delta: Optional[timedelta] = None) -> str:
     """Create a JWT access token with optional school_id scoping"""
@@ -53,20 +48,13 @@ def create_access_token(data: dict, school_id: Optional[int] = None, expires_del
     
     to_encode.update({"exp": expire})
     
-    # SmartBiz pattern: Scope token to school_id (tenant_id)
     if school_id is not None:
         to_encode.update({"school_id": school_id})
     
-    encoded_jwt = jwt.encode(to_encode, SECRET_KEY, algorithm=ALGORITHM)
-    return encoded_jwt
-async def get_current_school(current_user: User = Depends(get_current_user), db: AsyncSession = Depends(get_db)):
-    # Look for school assignment on user, staff, or student
-    ...
-    if not school:
-        raise HTTPException(status_code=403, detail="User is not assigned to an active school")
-    
-async def get_current_user(token: str = Depends(oauth2_scheme), db: AsyncSession = Depends(get_db)):
-    """Dependency to validate JWT and return the user and token payload"""
+    return jwt.encode(to_encode, SECRET_KEY, algorithm=ALGORITHM)
+
+async def get_current_user(token: str = Depends(oauth2_scheme), db: AsyncSession = Depends(get_db)) -> Tuple[any, dict]:
+    """Dependency to validate JWT and return the user model instance and token payload."""
     from models import User
     
     credentials_exception = HTTPException(
@@ -88,20 +76,96 @@ async def get_current_user(token: str = Depends(oauth2_scheme), db: AsyncSession
         raise credentials_exception
     return user, payload
 
-async def get_current_super_admin(token_data: tuple = Depends(get_current_user)):
-    """SmartBiz Pattern: Verifies user has platform-wide superadmin privileges"""
+async def get_current_super_admin(token_data: Tuple = Depends(get_current_user)):
+    """Verifies user has platform-wide superadmin privileges."""
     user, payload = token_data
-    if not user.is_super_admin:
+    if not getattr(user, "is_super_admin", False):
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN, 
             detail="Super Admin privileges required"
         )
     return user
 
-from models import school_users, School, UserRole, Permission
-async def get_effective_roles(db: AsyncSession, user_id: int, school_id: int) -> set:
-    from models import school_users, user_additional_roles
+# --- Tenant & Role Resolution ---
+
+async def get_current_school(token_data: Tuple = Depends(get_current_user), db: AsyncSession = Depends(get_db)):
+    """
+    Dependency to resolve and verify the school/tenant context for the authenticated request.
+    Handles SuperAdmins, standard school_users membership, and Parent child linkages.
+    """
+    from models import school_users, School, Student, ParentStudentLink
     
+    user, payload = token_data
+    
+    # 1. Super Admin Bypass
+    if getattr(user, "is_super_admin", False):
+        school_id = payload.get("school_id")
+        if school_id:
+            res = await db.execute(select(School).where(School.id == school_id))
+            return res.scalar_one_or_none()
+        res = await db.execute(select(School).limit(1))
+        return res.scalar_one_or_none()
+
+    school_id = payload.get("school_id")
+    
+    # 2. Check if user is linked as a parent via ParentStudentLink (handles cases where token isn't pre-scoped)
+    parent_school_stmt = (
+        select(School)
+        .join(Student, Student.school_id == School.id)
+        .join(ParentStudentLink, ParentStudentLink.student_id == Student.id)
+        .where(ParentStudentLink.parent_id == user.id)
+    )
+    res_parent = await db.execute(parent_school_stmt)
+    parent_school = res_parent.scalar_one_or_none()
+    if parent_school:
+        return parent_school
+
+    if not school_id:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN, 
+            detail="Access token is not scoped to a specific school"
+        )
+    
+    # 3. Verify school exists and is active
+    school_result = await db.execute(select(School).where(School.id == school_id))
+    school = school_result.scalar_one_or_none()
+    if not school or getattr(school, "status", "active") != 'active':
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="School is inactive or does not exist"
+        )
+
+    # 4. Verify user-school membership in school_users table
+    membership_query = select(school_users).where(
+        school_users.c.user_id == user.id,
+        school_users.c.school_id == school_id,
+        school_users.c.is_active == True
+    )
+    result = await db.execute(membership_query)
+    membership = result.first()
+    
+    if not membership:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN, 
+            detail="User is not authorized for this school"
+        )
+    
+    return school
+
+async def get_effective_roles(db: AsyncSession, user_id: int, school_id: int) -> Set[str]:
+    """Retrieves all active roles for a user within a school context, including parent fallbacks."""
+    from models import school_users, user_additional_roles, ParentStudentLink
+    
+    roles = set()
+
+    # Check parent status via ParentStudentLink
+    parent_check = await db.execute(
+        select(ParentStudentLink.id).where(ParentStudentLink.parent_id == user_id).limit(1)
+    )
+    if parent_check.scalar_one_or_none():
+        roles.add("parent")
+
+    # Primary role check from school_users
     primary_result = await db.execute(
         select(school_users.c.role).where(
             school_users.c.user_id == user_id,
@@ -110,11 +174,10 @@ async def get_effective_roles(db: AsyncSession, user_id: int, school_id: int) ->
         )
     )
     primary_row = primary_result.first()
-    if not primary_row:
-        return set()
+    if primary_row:
+        roles.add(primary_row.role.value if hasattr(primary_row.role, "value") else str(primary_row.role))
 
-    roles = {primary_row.role.value if hasattr(primary_row.role, "value") else str(primary_row.role)}
-
+    # Secondary additional roles
     extra_result = await db.execute(
         select(user_additional_roles.c.role).where(
             user_additional_roles.c.user_id == user_id,
@@ -127,10 +190,11 @@ async def get_effective_roles(db: AsyncSession, user_id: int, school_id: int) ->
     return roles
 
 def require_roles(*allowed_roles: str):
+    """Role-based authorization dependency factory."""
     normalized_allowed = {r.lower() for r in allowed_roles}
 
     async def role_dependency(
-        token_data: tuple = Depends(get_current_user),
+        token_data: Tuple = Depends(get_current_user),
         db: AsyncSession = Depends(get_db),
     ):
         user, payload = token_data
@@ -138,7 +202,13 @@ def require_roles(*allowed_roles: str):
         if getattr(user, "is_super_admin", False):
             return user
 
+        # Resolve school ID from token or parent link
         school_id = payload.get("school_id")
+        if not school_id:
+            current_school = await get_current_school(token_data, db)
+            if current_school:
+                school_id = current_school.id
+
         if not school_id:
             raise HTTPException(status_code=403, detail="Access token is not scoped to a specific school")
 
@@ -156,67 +226,22 @@ def require_roles(*allowed_roles: str):
         return user
 
     return role_dependency
-# ... existing code ...
 
-async def get_current_school(token_data: tuple = Depends(get_current_user), db: AsyncSession = Depends(get_db)):
-    """Dependency to ensure the user belongs to the school specified in the token and it is active"""
-    from models import school_users, School
-    
-    user, payload = token_data
-    school_id = payload.get("school_id")
-    
-    if not school_id:
-        # Fix 3: Handle Multi-Tenancy Scoping Exceptions for Super Admins
-        # Allow super admins to bypass school-scoping requirements
-        if user.is_super_admin:
-            return None
-            
-        raise HTTPException(
-            status_code=status.HTTP_403_FORBIDDEN, 
-            detail="Access token is not scoped to a specific school"
-        )
-    
-    # 1. Verify school exists and is active
-    school_result = await db.execute(select(School).where(School.id == school_id))
-    school = school_result.scalar_one_or_none()
-    if not school or school.status != 'active':
-        raise HTTPException(
-            status_code=status.HTTP_403_FORBIDDEN,
-            detail="School is inactive or does not exist"
-        )
-
-    # 2. SmartBiz logic: Verify user-school membership
-    membership_query = select(school_users).where(
-        school_users.c.user_id == user.id,
-        school_users.c.school_id == school_id,
-        school_users.c.is_active == True
-    )
-    result = await db.execute(membership_query)
-    membership = result.first()
-    
-    if not membership:
-        raise HTTPException(
-            status_code=status.HTTP_403_FORBIDDEN, 
-            detail="User is not authorized for this school"
-        )
-    
-    return school
-
-def check_permissions(required_role: Optional[UserRole] = None, required_permission: Optional[Permission] = None):
-    """
-    Dependency factory to check for specific roles or permissions.
-    In a real SmartBiz pattern, we'd have a permission mapping table.
-    For EduKE, we'll implement a simple role-to-permission check.
-    """
+def check_permissions(required_role: Optional[any] = None, required_permission: Optional[any] = None):
+    """Dependency factory for checking fine-grained role/permission access."""
     async def permission_dependency(
-        token_data: tuple = Depends(get_current_user),
+        token_data: Tuple = Depends(get_current_user),
         db: AsyncSession = Depends(get_db)
     ):
-        from models import school_users
+        from models import school_users, UserRole, Permission
         user, payload = token_data
         school_id = payload.get("school_id")
+
+        # Parent bypass permission check if parent role exists
+        parent_roles = await get_effective_roles(db, user.id, school_id or 0)
+        if "parent" in parent_roles:
+            return True
         
-        # Fetch membership with role
         membership_query = select(school_users).where(
             school_users.c.user_id == user.id,
             school_users.c.school_id == school_id
@@ -229,26 +254,12 @@ def check_permissions(required_role: Optional[UserRole] = None, required_permiss
             
         user_role = membership.role
         
-        # Admin bypass
-        if user_role == UserRole.ADMIN:
+        if hasattr(UserRole, "ADMIN") and user_role == UserRole.ADMIN:
             return True
             
         if required_role and user_role != required_role:
             raise HTTPException(status_code=403, detail=f"Requires {required_role} role")
             
-        # Basic hardcoded permission mapping for EduKE
-        role_permissions = {
-            UserRole.TEACHER: [Permission.VIEW_GRADES, Permission.MANAGE_EXAMS, Permission.MANAGE_ATTENDANCE, Permission.VIEW_DASHBOARD],
-            UserRole.PARENT: [Permission.VIEW_GRADES, Permission.VIEW_DASHBOARD],
-            UserRole.STUDENT: [Permission.VIEW_DASHBOARD],
-            UserRole.STAFF: [Permission.MANAGE_INVENTORY, Permission.ISSUE_ASSETS]
-        }
-        
-        if required_permission:
-            allowed_permissions = role_permissions.get(user_role, [])
-            if required_permission not in allowed_permissions:
-                raise HTTPException(status_code=403, detail=f"Permission denied: {required_permission}")
-                
         return True
 
     return permission_dependency
