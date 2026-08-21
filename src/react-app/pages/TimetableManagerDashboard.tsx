@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useCallback } from 'react';
+import { useState, useEffect, useCallback, ChangeEvent } from 'react';
 import { 
   Calendar, 
   AlertTriangle, 
@@ -7,14 +7,13 @@ import {
   Send, 
   UserCheck, 
   Layers, 
-  Clock, 
   Building2,
   Filter,
-  Plus
+  Plus,
+  Wand2
 } from 'lucide-react';
 import { Card, CardHeader, CardTitle, CardContent } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
-import { Select } from '@/components/ui/select';
 import { Badge } from '@/components/ui/badge';
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from '@/components/ui/dialog';
 import { Input } from '@/components/ui/input';
@@ -24,22 +23,17 @@ interface TimetableSlot {
   id: number;
   day_of_week: string;
   period_number: number;
-  start_time: string;
-  end_time: string;
   class_name: string;
-  stream?: string;
   subject_name: string;
-  teacher_id: number;
   teacher_name: string;
   room_number: string;
   has_conflict?: boolean;
-  conflict_reason?: string;
 }
 
 interface Teacher {
-  id: number;
-  full_name: string;
-  department?: string;
+  id: number | string;
+  full_name?: string;
+  name?: string;
 }
 
 const DAYS = ['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday'];
@@ -49,41 +43,64 @@ export default function TimetableManagerDashboard() {
   const [slots, setSlots] = useState<TimetableSlot[]>([]);
   const [teachers, setTeachers] = useState<Teacher[]>([]);
   const [loading, setLoading] = useState<boolean>(true);
+  const [generating, setGenerating] = useState<boolean>(false);
   const [error, setError] = useState<string | null>(null);
   const [viewMode, setViewMode] = useState<'class' | 'teacher' | 'room'>('class');
   const [selectedFilter, setSelectedFilter] = useState<string>('');
   
-  // Slot Creation/Edit Modal State
+  // Modal State
   const [isModalOpen, setIsModalOpen] = useState<boolean>(false);
   const [selectedSlot, setSelectedSlot] = useState<Partial<TimetableSlot> | null>(null);
   const [saving, setSaving] = useState<boolean>(false);
 
-  // Fetch Master Data
+  const getAuthHeaders = (): Record<string, string> => {
+    const token = localStorage.getItem('accessToken');
+    return {
+      'Accept': 'application/json',
+      'Content-Type': 'application/json',
+      ...(token ? { 'Authorization': `Bearer ${token}` } : {})
+    };
+  };
+
   const fetchData = useCallback(async () => {
     setLoading(true);
     setError(null);
     try {
+      const headers = getAuthHeaders();
       const [timetableRes, teachersRes] = await Promise.all([
-        fetch('/api/timetables/master', { headers: { 'Accept': 'application/json' } }),
-        fetch('/api/teachers', { headers: { 'Accept': 'application/json' } })
+        fetch('/api/timetables/master', { headers }),
+        fetch('/api/teachers', { headers })
       ]);
 
       if (!timetableRes.ok || !teachersRes.ok) {
-        throw new Error('Failed to load timetable manager data from the server.');
+        throw new Error(`Server returned error: ${timetableRes.status} / ${teachersRes.status}`);
       }
 
-      const timetableData: TimetableSlot[] = await timetableRes.json();
-      const teachersData: Teacher[] = await teachersRes.json();
+      const rawTimetable = await timetableRes.json();
+      const rawTeachers = await teachersRes.json();
+
+      const timetableData: TimetableSlot[] = Array.isArray(rawTimetable) ? rawTimetable : rawTimetable.data || [];
+      const teachersData: Teacher[] = Array.isArray(rawTeachers) ? rawTeachers : rawTeachers.data || [];
+
+      const normalizedTeachers = teachersData.map((t) => ({
+        ...t,
+        full_name: t.full_name || t.name || 'Assigned Teacher'
+      }));
 
       setSlots(timetableData);
-      setTeachers(teachersData);
+      setTeachers(normalizedTeachers);
 
-      // Default filter selection if not set
-      if (!selectedFilter && timetableData.length > 0) {
-        setSelectedFilter(timetableData[0].class_name || '');
+      if (!selectedFilter) {
+        if (timetableData.length > 0) {
+          setSelectedFilter(timetableData[0].class_name || '');
+        } else if (normalizedTeachers.length > 0) {
+          setSelectedFilter(normalizedTeachers[0].full_name || '');
+        }
       }
-    } catch (err: any) {
-      setError(err.message || 'An error occurred while communicating with the server.');
+    } catch (err: unknown) {
+      console.error('Fetch error:', err);
+      const msg = err instanceof Error ? err.message : 'An error occurred while communicating with the server.';
+      setError(msg);
     } finally {
       setLoading(false);
     }
@@ -93,23 +110,46 @@ export default function TimetableManagerDashboard() {
     fetchData();
   }, [fetchData]);
 
-  // Derived Statistics
-  const totalConflicts = slots.filter(s => s.has_conflict).length;
+  // Auto-Generate Trigger
+  const handleAutoGenerate = async () => {
+    if (!confirm('Auto-generating will create a conflict-free master timetable based on HOD teacher & class assignments. Continue?')) return;
+    setGenerating(true);
+    try {
+      const res = await fetch('/api/timetables/generate-auto', {
+        method: 'POST',
+        headers: getAuthHeaders()
+      });
+
+      if (!res.ok) throw new Error('Auto-generation failed.');
+
+      const result = await res.json();
+      alert(result.message || 'Timetable auto-generated successfully!');
+      setSlots(result.data || []);
+      if (result.data?.length > 0) {
+        setSelectedFilter(result.data[0].class_name);
+      }
+    } catch (err: unknown) {
+      const msg = err instanceof Error ? err.message : 'Failed to auto-generate timetable.';
+      alert(msg);
+    } finally {
+      setGenerating(false);
+    }
+  };
+
   const uniqueRooms = Array.from(new Set(slots.map(s => s.room_number).filter(Boolean)));
   const uniqueClasses = Array.from(new Set(slots.map(s => s.class_name).filter(Boolean)));
+  const totalConflicts = slots.filter(s => s.has_conflict).length;
 
-  // Filter options based on active view mode
   const getFilterOptions = () => {
     if (viewMode === 'class') return uniqueClasses;
-    if (viewMode === 'teacher') return teachers.map(t => t.full_name);
+    if (viewMode === 'teacher') return teachers.map(t => t.full_name || '');
     if (viewMode === 'room') return uniqueRooms;
     return [];
   };
 
-  // Find slot for specific cell
   const getSlotForCell = (day: string, period: number) => {
     return slots.find(s => {
-      const matchesDay = s.day_of_week.toLowerCase() === day.toLowerCase();
+      const matchesDay = s.day_of_week?.toLowerCase() === day.toLowerCase();
       const matchesPeriod = s.period_number === period;
       
       if (viewMode === 'class') return matchesDay && matchesPeriod && s.class_name === selectedFilter;
@@ -129,7 +169,7 @@ export default function TimetableManagerDashboard() {
         period_number: period,
         class_name: viewMode === 'class' ? selectedFilter : '',
         teacher_name: viewMode === 'teacher' ? selectedFilter : '',
-        room_number: viewMode === 'room' ? selectedFilter : '',
+        room_number: viewMode === 'room' ? selectedFilter : 'Room 101',
         subject_name: ''
       });
     }
@@ -145,7 +185,7 @@ export default function TimetableManagerDashboard() {
       
       const res = await fetch(url, {
         method,
-        headers: { 'Content-Type': 'application/json' },
+        headers: getAuthHeaders(),
         body: JSON.stringify(selectedSlot)
       });
 
@@ -154,22 +194,27 @@ export default function TimetableManagerDashboard() {
       setIsModalOpen(false);
       setSelectedSlot(null);
       await fetchData();
-    } catch (err: any) {
-      alert(err.message || 'Error saving slot.');
+    } catch (err: unknown) {
+      const msg = err instanceof Error ? err.message : 'Error saving slot.';
+      alert(msg);
     } finally {
       setSaving(false);
     }
   };
 
   const handlePublishTimetable = async () => {
-    if (!confirm('Are you sure you want to publish the master timetable? This will update schedules for all teachers and students.')) return;
+    if (!confirm('Are you sure you want to publish the master timetable?')) return;
     try {
-      const res = await fetch('/api/timetables/publish', { method: 'POST' });
+      const res = await fetch('/api/timetables/publish', {
+        method: 'POST',
+        headers: getAuthHeaders()
+      });
+
       if (!res.ok) throw new Error('Failed to publish timetable.');
-      alert('Timetable successfully published!');
-      await fetchData();
-    } catch (err: any) {
-      alert(err.message || 'Publishing failed.');
+      alert('Timetable published successfully!');
+    } catch (err: unknown) {
+      const msg = err instanceof Error ? err.message : 'Publishing failed.';
+      alert(msg);
     }
   };
 
@@ -178,19 +223,6 @@ export default function TimetableManagerDashboard() {
       <div className="flex flex-col items-center justify-center h-96 space-y-4">
         <RefreshCw className="w-8 h-8 animate-spin text-blue-600" />
         <p className="text-gray-600 font-medium">Loading live timetable schedule...</p>
-      </div>
-    );
-  }
-
-  if (error) {
-    return (
-      <div className="p-6 bg-red-50 border border-red-200 rounded-xl flex flex-col items-center text-center space-y-3">
-        <AlertTriangle className="w-10 h-10 text-red-600" />
-        <h3 className="text-lg font-semibold text-red-800">Connection Error</h3>
-        <p className="text-sm text-red-600 max-w-md">{error}</p>
-        <Button onClick={fetchData} variant="outline" className="mt-2 border-red-300 text-red-700 hover:bg-red-100">
-          Retry Fetching
-        </Button>
       </div>
     );
   }
@@ -205,12 +237,19 @@ export default function TimetableManagerDashboard() {
             Timetable Manager
           </h1>
           <p className="text-sm text-slate-500 mt-1">
-            Real-time master scheduling, conflict resolution, and cover allocation.
+            Auto-generate and fine-tune master schedules from HOD course & teacher assignments.
           </p>
         </div>
         <div className="flex flex-wrap gap-3">
+          <Button 
+            onClick={handleAutoGenerate} 
+            disabled={generating}
+            className="bg-indigo-600 hover:bg-indigo-700 text-white flex items-center gap-2"
+          >
+            <Wand2 className="w-4 h-4" /> {generating ? 'Generating...' : 'Auto-Generate Schedule'}
+          </Button>
           <Button onClick={fetchData} variant="outline" className="flex items-center gap-2">
-            <RefreshCw className="w-4 h-4" /> Refresh Data
+            <RefreshCw className="w-4 h-4" /> Refresh
           </Button>
           <Button onClick={handlePublishTimetable} className="bg-blue-600 hover:bg-blue-700 text-white flex items-center gap-2">
             <Send className="w-4 h-4" /> Publish Master Timetable
@@ -218,7 +257,7 @@ export default function TimetableManagerDashboard() {
         </div>
       </div>
 
-      {/* Health Metrics & Status */}
+      {/* Metrics Header */}
       <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
         <Card className="border-slate-200">
           <CardContent className="pt-6 flex items-center justify-between">
@@ -271,15 +310,14 @@ export default function TimetableManagerDashboard() {
         </Card>
       </div>
 
-      {/* Filter Toolbar */}
+      {/* Grid Toolbar & Interactive Schedule */}
       <Card className="border-slate-200">
         <CardHeader className="pb-3 border-b border-slate-100">
           <div className="flex flex-col md:flex-row justify-between items-start md:items-center gap-4">
             <CardTitle className="text-base font-semibold flex items-center gap-2">
-              <Filter className="w-4 h-4 text-slate-500" /> Interactive Grid Filter
+              <Filter className="w-4 h-4 text-slate-500" /> Master Timetable Grid
             </CardTitle>
             <div className="flex flex-wrap items-center gap-3 w-full md:w-auto">
-              {/* View Switcher */}
               <div className="flex bg-slate-100 p-1 rounded-lg border border-slate-200">
                 <button
                   onClick={() => { setViewMode('class'); setSelectedFilter(uniqueClasses[0] || ''); }}
@@ -301,21 +339,20 @@ export default function TimetableManagerDashboard() {
                 </button>
               </div>
 
-              {/* Specific Item Filter Dropdown */}
-              <Select 
+              {/* Standard HTML Select element to avoid UI component type mismatch */}
+              <select 
                 value={selectedFilter} 
-                onChange={(e) => setSelectedFilter(e.target.value)}
-                className="w-48 bg-white"
+                onChange={(e: ChangeEvent<HTMLSelectElement>) => setSelectedFilter(e.target.value)}
+                className="w-48 h-9 px-3 py-1 text-sm bg-white border border-slate-200 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500"
               >
                 {getFilterOptions().map((opt) => (
                   <option key={opt} value={opt}>{opt}</option>
                 ))}
-              </Select>
+              </select>
             </div>
           </div>
         </CardHeader>
 
-        {/* Timetable Interactive Grid */}
         <CardContent className="pt-6 overflow-x-auto">
           <table className="w-full border-collapse border border-slate-200 min-w-[800px]">
             <thead>
@@ -364,11 +401,6 @@ export default function TimetableManagerDashboard() {
                                 </div>
                               )}
                             </div>
-                            {slot.has_conflict && (
-                              <Badge className="bg-amber-200 text-amber-800 text-[9px] px-1 py-0 mt-1 flex items-center gap-1">
-                                <AlertTriangle className="w-2.5 h-2.5" /> Conflict
-                              </Badge>
-                            )}
                           </div>
                         ) : (
                           <div className="h-full flex items-center justify-center text-slate-300 hover:text-blue-500">
@@ -385,7 +417,7 @@ export default function TimetableManagerDashboard() {
         </CardContent>
       </Card>
 
-      {/* Add/Edit Slot Modal */}
+      {/* Edit Slot Modal */}
       <Dialog open={isModalOpen} onOpenChange={setIsModalOpen}>
         <DialogContent className="sm:max-w-md">
           <DialogHeader>
@@ -409,7 +441,7 @@ export default function TimetableManagerDashboard() {
               <Label className="text-xs">Class Name</Label>
               <Input 
                 value={selectedSlot?.class_name || ''} 
-                onChange={e => setSelectedSlot(prev => ({ ...prev, class_name: e.target.value }))}
+                onChange={(e: ChangeEvent<HTMLInputElement>) => setSelectedSlot(prev => ({ ...prev, class_name: e.target.value }))}
                 placeholder="e.g. Form 3 West"
               />
             </div>
@@ -418,30 +450,30 @@ export default function TimetableManagerDashboard() {
               <Label className="text-xs">Subject Name</Label>
               <Input 
                 value={selectedSlot?.subject_name || ''} 
-                onChange={e => setSelectedSlot(prev => ({ ...prev, subject_name: e.target.value }))}
+                onChange={(e: ChangeEvent<HTMLInputElement>) => setSelectedSlot(prev => ({ ...prev, subject_name: e.target.value }))}
                 placeholder="e.g. Mathematics"
               />
             </div>
 
             <div>
               <Label className="text-xs">Assigned Teacher</Label>
-              <Select
+              <select
                 value={selectedSlot?.teacher_name || ''}
-                onChange={e => setSelectedSlot(prev => ({ ...prev, teacher_name: e.target.value }))}
-                className="w-full bg-white"
+                onChange={(e: ChangeEvent<HTMLSelectElement>) => setSelectedSlot(prev => ({ ...prev, teacher_name: e.target.value }))}
+                className="w-full h-9 px-3 py-1 text-sm bg-white border border-slate-200 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500"
               >
                 <option value="">Select Teacher</option>
                 {teachers.map(t => (
                   <option key={t.id} value={t.full_name}>{t.full_name}</option>
                 ))}
-              </Select>
+              </select>
             </div>
 
             <div>
               <Label className="text-xs">Room / Lab</Label>
               <Input 
                 value={selectedSlot?.room_number || ''} 
-                onChange={e => setSelectedSlot(prev => ({ ...prev, room_number: e.target.value }))}
+                onChange={(e: ChangeEvent<HTMLInputElement>) => setSelectedSlot(prev => ({ ...prev, room_number: e.target.value }))}
                 placeholder="e.g. Lab 2 / Room 10B"
               />
             </div>

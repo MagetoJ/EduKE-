@@ -26,3 +26,4 @@ class FeeSummarySchema(BaseModel):
     total_billed: float
     total_paid: float
     balance: float
+    

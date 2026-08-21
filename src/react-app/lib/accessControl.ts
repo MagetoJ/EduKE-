@@ -46,3 +46,35 @@ export function canUserAccessRoute(userRoles: string[], allowedRoles: SystemRole
   if (userRoles.includes('administrator') || userRoles.includes('super_admin')) return true;
   return userRoles.some((r) => allowedRoles.includes(r as SystemRole));
 }
+
+/**
+ * Checks whether a user with the given roles is allowed to view a route,
+ * based on SYSTEM_NAV_ITEMS.
+ *
+ * NOTE: SYSTEM_NAV_ITEMS' hrefs (e.g. "/hod/analytics") don't currently
+ * match the live React Router paths used in App.tsx (e.g. "/dashboard/hod"),
+ * so we match on the LAST path segment rather than requiring an exact
+ * pathname match — this lets entries like { href: '/hod/analytics', roles:
+ * [...] } still apply to a route like "/dashboard/hod".
+ *
+ * If no SYSTEM_NAV_ITEMS entry matches the route at all, we default to
+ * ALLOW rather than deny. RoleRoute is opt-in (only wraps specific <Route>
+ * elements in App.tsx), so a route with no corresponding nav-item entry is
+ * one nobody has explicitly restricted yet — denying it by default would
+ * silently lock every signed-in user out of that page.
+ */
+export function routeAllowsRole(pathname: string, userRoles: string[]): boolean {
+  if (userRoles.includes('administrator') || userRoles.includes('super_admin')) return true;
+
+  const normalized = pathname.replace(/\/+$/, ''); // strip trailing slash
+  const lastSegment = normalized.split('/').filter(Boolean).pop() ?? '';
+
+  const match = SYSTEM_NAV_ITEMS.find((item) => {
+    const itemLastSegment = item.href.split('/').filter(Boolean).pop() ?? '';
+    return itemLastSegment === lastSegment || normalized.endsWith(item.href);
+  });
+
+  if (!match) return true; // no restriction defined for this route — allow
+
+  return canUserAccessRoute(userRoles, match.roles);
+}

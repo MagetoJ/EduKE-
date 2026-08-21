@@ -1,24 +1,37 @@
-from stubs import router as stubs_router
-from fastapi import FastAPI, Depends, HTTPException, status, Request
-from courses import router as courses_router
-from fastapi.exceptions import RequestValidationError
-from assignments import router as assignments_router
-from library import router as library_router
-from fastapi.responses import JSONResponse
-from fastapi.middleware.cors import CORSMiddleware
-from sqlalchemy.ext.asyncio import AsyncSession
-from sqlalchemy.exc import SQLAlchemyError
-from sqlalchemy import select, insert, update, delete  # Added update here
-from datetime import timedelta
-from typing import Optional
-from models_roles import ClassTeacherAssignment, AcademicDepartment
-from hod_shared import set_user_role_in_school
+import sys
+import asyncio
+
+# Fix Windows ProactorEventLoop SSL socket resets with asyncpg on Windows
+if sys.platform == "win32":
+    asyncio.set_event_loop_policy(asyncio.WindowsSelectorEventLoopPolicy())
+
+import os
 import logging
 import traceback
-import os
-from hod import router as hod_router
+from contextlib import asynccontextmanager
+from datetime import timedelta
+from typing import Optional
+
+from fastapi import FastAPI, Depends, HTTPException, status, Request
+from fastapi.exceptions import RequestValidationError
+from fastapi.responses import JSONResponse
+from fastapi.middleware.cors import CORSMiddleware
+
+from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy.exc import SQLAlchemyError
+from sqlalchemy import select, insert, update, delete
+from jose import jwt
+from pydantic import BaseModel
+
+# Database and Core Models
 from database import get_db, init_db
 from models import User, School, school_users, UserRole
+from models_roles import ClassTeacherAssignment, AcademicDepartment
+from models_lesson_plan import LessonPlan  # noqa: F401
+from models_messaging import GuardianContact, GuardianMessage  # noqa: F401
+from hod_shared import set_user_role_in_school
+from router.timetable_manager import router as timetable_manager_router
+# Auth Helpers
 from auth import (
     get_password_hash, 
     verify_password, 
@@ -30,8 +43,13 @@ from auth import (
     SECRET_KEY,
     ALGORITHM
 )
-from jose import jwt
-from pydantic import BaseModel
+
+# Route Imports
+from stubs import router as stubs_router
+from courses import router as courses_router
+from assignments import router as assignments_router
+from library import router as library_router
+from hod import router as hod_router
 from students import router as students_router
 from payments import router as payments_router
 from assets import router as assets_router
@@ -47,29 +65,49 @@ from notifications import router as notifications_router
 from transport_boarding import router as transport_router
 from curriculum import router as curriculum_router
 from class_teacher import router as class_teacher_router
-from sqlalchemy import delete
 from teacher_progress import router as teacher_progress_router
 from departments_admin import router as departments_admin_router
 from bulk_onboard import router as bulk_router
-# ADDED: Import the newly created teacher dashboard router
 from router.teacher_dashboard import router as teacher_dashboard_router
-# ADDED: Lesson planning (schemes of work / lesson plan uploads) for teachers.
-# Imported here (before init_db() runs at startup) so LessonPlan is
-# registered on the shared Base.metadata and gets created by create_all().
-from models_lesson_plan import LessonPlan  # noqa: F401
 from lesson_plans import router as lesson_plans_router
-# ADDED: Guardian contacts + teacher-to-guardian message log (new tables only).
-from models_messaging import GuardianContact, GuardianMessage  # noqa: F401
 from messaging import router as messaging_router
 import parents
 import portal_api
+
 # Setup logging
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
-app = FastAPI(title="EduKE API", version="1.0.0", redirect_slashes=False)
+# ==================== LIFESPAN HANDLER ====================
 
-# FIX: CORS middleware must be added BEFORE routers so it runs on every request
+@asynccontextmanager
+async def lifespan(app: FastAPI):
+    """
+    Modern FastAPI lifespan context manager replacing deprecated startup/shutdown events.
+    """
+    print("🚀 Starting EduKE server application...")
+    try:
+        await init_db()
+        print("✅ DATABASE_URL connected and database initialized successfully!")
+    except Exception as e:
+        print(f"❌ CRITICAL: Database initialization failed during startup: {e}")
+        raise e
+
+    yield
+
+    print("🛑 Shutting down EduKE server application...")
+
+
+# Initialize FastAPI instance
+app = FastAPI(
+    title="EduKE Portal API",
+    description="API for EduKE School Management System",
+    version="1.0.0",
+    redirect_slashes=False,
+    lifespan=lifespan
+)
+
+# CORS middleware
 app.add_middleware(
     CORSMiddleware,
     allow_origins=[
@@ -83,7 +121,8 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-# Include Routers
+# ==================== ROUTER INCLUSIONS ====================
+
 app.include_router(students_router, prefix="/api", dependencies=[Depends(get_current_user)])
 app.include_router(payments_router, prefix="/api", dependencies=[Depends(get_current_user)])
 app.include_router(assets_router, prefix="/api", dependencies=[Depends(get_current_user)])
@@ -112,18 +151,17 @@ app.include_router(lesson_plans_router, dependencies=[Depends(get_current_user)]
 app.include_router(messaging_router, dependencies=[Depends(get_current_user)])
 app.include_router(parents.router)
 app.include_router(portal_api.router)
-# ADDED: Register the teacher dashboard routes to your FastAPI app
+app.include_router(teacher_dashboard_router, dependencies=[Depends(get_current_user)])
+app.include_router(timetable_manager_router)
 app.include_router(
-    teacher_dashboard_router,
+    timetable_manager_router,
     dependencies=[Depends(get_current_user)]
 )
-
 
 # ==================== EXCEPTION HANDLERS ====================
 
 @app.exception_handler(HTTPException)
 async def custom_http_exception_handler(request: Request, exc: HTTPException):
-    """Handles explicit client/server actions raised within routes"""
     logger.warning(f"HTTP {exc.status_code} on {request.method} {request.url.path}: {exc.detail}")
     return JSONResponse(
         status_code=exc.status_code,
@@ -132,7 +170,6 @@ async def custom_http_exception_handler(request: Request, exc: HTTPException):
 
 @app.exception_handler(RequestValidationError)
 async def validation_exception_handler(request: Request, exc: RequestValidationError):
-    """Catches and sanitizes Pydantic input/validation errors (HTTP 422)"""
     errors = exc.errors()
     error_messages = []
     for err in errors:
@@ -154,7 +191,6 @@ async def validation_exception_handler(request: Request, exc: RequestValidationE
 
 @app.exception_handler(SQLAlchemyError)
 async def database_exception_handler(request: Request, exc: SQLAlchemyError):
-    """Catches database level problems gracefully without revealing connection strings or schemas"""
     logger.critical(f"Database error on {request.method} {request.url.path}: {str(exc)}\n{traceback.format_exc()}")
     return JSONResponse(
         status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
@@ -166,26 +202,15 @@ async def database_exception_handler(request: Request, exc: SQLAlchemyError):
 
 @app.exception_handler(Exception)
 async def generic_exception_handler(request: Request, exc: Exception):
-    """Catch-all handler for unexpected system failures (HTTP 500)"""
     logger.critical(f"Unhandled system error on {request.method} {request.url.path}: {str(exc)}\n{traceback.format_exc()}")
     return JSONResponse(
         status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
         content={"success": False, "detail": "An internal server error occurred"},
     )
 
-# ==================== STARTUP EVENTS ====================
 
-@app.on_event("startup")
-async def startup_event():
-    """Initialize database on startup - SmartBiz pattern"""
-    try:
-        await init_db()
-        logger.info("EduKE Backend Started and Database Initialized Successfully")
-    except Exception as e:
-        logger.critical(f"Failed to initialize database during startup: {str(e)}")
-        raise e
+# ==================== SCHEMAS ====================
 
-# ============= SCHEMAS =============
 class SchoolRegister(BaseModel):
     schoolName: str
     is_special_needs: bool
@@ -199,7 +224,6 @@ class LoginRequest(BaseModel):
     email: str
     password: str
 
-# Added StaffUpdate Schema properly placed here
 class StaffUpdate(BaseModel):
     name: Optional[str] = None
     email: Optional[str] = None
@@ -207,8 +231,12 @@ class StaffUpdate(BaseModel):
     role: Optional[str] = None
     department: Optional[str] = None
     is_active: Optional[bool] = None
-    class_assigned: Optional[str] = None  # 🌟 Added field
+    class_assigned: Optional[str] = None
     subject: Optional[str] = None
+
+class RefreshRequest(BaseModel):
+    refreshToken: str
+
 
 # ==================== AUTH ROUTES ====================
 
@@ -217,7 +245,6 @@ class StaffUpdate(BaseModel):
 @app.post("/api/register-school")
 @app.post("/api/register-school/")
 async def register_school(data: SchoolRegister, db: AsyncSession = Depends(get_db)):
-    """Registers a new School and its first Admin user with special needs parameters"""
     slug = data.schoolName.lower().replace(" ", "-")
     existing_school = await db.execute(select(School).where(School.slug == slug))
     if existing_school.scalar_one_or_none():
@@ -259,12 +286,12 @@ async def register_school(data: SchoolRegister, db: AsyncSession = Depends(get_d
     await db.commit()
     return {"success": True, "message": f"School {data.schoolName} registered successfully", "school_id": new_school.id}
 
+
 @app.post("/api/auth/login")
 @app.post("/api/auth/login/")
 @app.post("/api/login")
 @app.post("/api/login/")
 async def login(data: LoginRequest, db: AsyncSession = Depends(get_db)):
-    """Login and return a token scoped to the user's school and special needs track parameters"""
     result = await db.execute(select(User).where(User.email == data.email))
     user = result.scalar_one_or_none()
 
@@ -325,14 +352,11 @@ async def login(data: LoginRequest, db: AsyncSession = Depends(get_db)):
         }
     }
 
-class RefreshRequest(BaseModel):
-    refreshToken: str
 
 @app.post("/api/auth/refresh-token")
 @app.post("/api/auth/refresh-token/")
 @app.post("/api/refresh-token")
 async def refresh_token(data: RefreshRequest, request: Request):
-    """Stub to prevent 404/401 in frontend background refresh"""
     auth_header = request.headers.get("Authorization")
     token = auth_header.split(" ")[1] if auth_header and auth_header.startswith("Bearer ") else None
 
@@ -366,6 +390,7 @@ async def refresh_token(data: RefreshRequest, request: Request):
 
     raise HTTPException(status_code=401, detail="Session expired - please login again")
 
+
 # ==================== STAFF DIRECTORY ROUTES ====================
 
 @app.get("/api/staff")
@@ -375,9 +400,6 @@ async def list_school_staff(
     token_data: tuple = Depends(get_current_user),  
     current_school: Optional[School] = Depends(get_current_school)
 ):
-    """
-    Fetches all staff members belonging to the current school tenant.
-    """
     if not current_school:
         return {"success": True, "data": []}
 
@@ -396,10 +418,6 @@ async def list_school_staff(
     result = await db.execute(query)
     rows = result.all()
 
-    # HODs' department info comes from academic_departments.hod_id, not a
-    # free-text field, so pull the real name/code for anyone who is one --
-    # this replaces the old placeholder ("Academics") that told an admin
-    # nothing about which actual department they head.
     dept_result = await db.execute(
         select(AcademicDepartment.id, AcademicDepartment.hod_id, AcademicDepartment.name, AcademicDepartment.code)
         .where(
@@ -444,9 +462,6 @@ async def list_school_staff(
             "phone": "",
             "role": role_str,
             "department": department_display,
-            # Only populated for actual HODs, pulled straight from
-            # academic_departments -- None for everyone else so the frontend
-            # can tell "real department" apart from the generic placeholder.
             "department_id": assigned_dept["id"] if (role_str == "hod" and assigned_dept) else None,
             "department_code": assigned_dept["code"] if (role_str == "hod" and assigned_dept) else None,
             "status": "Active" if raw_active else "Inactive",
@@ -465,9 +480,6 @@ async def update_staff_member(
     db: AsyncSession = Depends(get_db),
     current_school: School = Depends(get_current_school)
 ):
-    """Updates an existing staff member's details and synchronizes role assignments"""
-    
-    # 1. Fetch user and membership details
     user_result = await db.execute(select(User).where(User.id == staff_id))
     user = user_result.scalar_one_or_none()
     
@@ -487,22 +499,11 @@ async def update_staff_member(
 
     old_role = str(membership[0]).lower() if membership[0] else ""
 
-    # 2. Process personal profile updates
     if data.name is not None:
         user.full_name = data.name
     if data.email is not None:
         user.email = data.email
 
-    # 2b. Guard against the "two HODs in one department" bug.
-    # This form has no department_id field at all -- it only knows a free-text
-    # "department" label -- so it cannot enforce "one HOD per department"
-    # against academic_departments.hod_id. Previously it would happily set
-    # role="hod" for any staff member here, completely disconnected from the
-    # department that already had a real HOD assigned via the Departments &
-    # HOD Management page. That split-brain is exactly what produced two
-    # different people both showing up as "HOD" for what admins consider the
-    # same department. Appointing a HOD must go through the Departments page,
-    # which knows the actual department_id and enforces the one-HOD invariant.
     requested_role = data.role.lower().strip() if data.role else None
     if requested_role == "hod" and old_role != "hod":
         raise HTTPException(
@@ -514,7 +515,6 @@ async def update_staff_member(
             ),
         )
 
-    # 3. Process role and activity updates
     update_values = {}
     if data.role is not None:
         update_values["role"] = data.role
@@ -529,10 +529,6 @@ async def update_staff_member(
             ).values(**update_values)
         )
 
-    # 3b. If this staff member was HOD and is being moved to a different role
-    # from this screen, keep academic_departments.hod_id in sync -- otherwise
-    # the Departments page would keep showing them as HOD of their old
-    # department even though their school-wide role no longer says "hod".
     if old_role == "hod" and requested_role is not None and requested_role != "hod":
         await db.execute(
             update(AcademicDepartment)
@@ -543,17 +539,14 @@ async def update_staff_member(
             .values(hod_id=None)
         )
 
-    # 4. Fixed Bug #3: Manage ClassTeacherAssignment rows
     new_role = data.role.lower() if data.role else old_role
 
     if new_role == "class_teacher":
         if data.class_assigned:
-            # Parse something like "Grade 10 - Section A"
             parts = data.class_assigned.split(" - Section ")
             grade_level = parts[0] if len(parts) > 0 else "Grade 10"
             stream_section = parts[1] if len(parts) > 1 else "A"
 
-            # Check if assignment already exists
             existing_assign = await db.execute(
                 select(ClassTeacherAssignment).where(ClassTeacherAssignment.teacher_id == staff_id)
             )
@@ -571,7 +564,6 @@ async def update_staff_member(
                 )
                 db.add(new_assignment)
     else:
-        # If their role was changed away from class teacher, purge old active assignment row
         await db.execute(
             delete(ClassTeacherAssignment).where(ClassTeacherAssignment.teacher_id == staff_id)
         )
@@ -579,11 +571,11 @@ async def update_staff_member(
     await db.commit()
     return {"success": True, "message": "Staff member and assignments updated successfully"}
 
+
 # ==================== SYSTEM ROUTES ====================
 
 @app.get("/api/health")
 async def health_check():
-    """Platform health check"""
     return {"status": "healthy", "service": "EduKE API"}
 
 
@@ -592,7 +584,6 @@ async def list_schools_compatibility(
     db: AsyncSession = Depends(get_db), 
     _ = Depends(get_current_super_admin)
 ):
-    """Compatibility for Dashboard.tsx which calls /api/schools"""
     result = await db.execute(select(School))
     schools = result.scalars().all()
     return [{
@@ -610,6 +601,7 @@ async def list_schools_compatibility(
 async def root():
     return {"message": "Welcome to EduKE."}
 
+
 if __name__ == "__main__":
     import uvicorn
-    uvicorn.run("main:app", host="0.0.0.0", port=int(os.environ.get("PORT", 8000)))
+    uvicorn.run("main:app", host="0.0.0.0", port=int(os.environ.get("PORT", 8000)), reload=True)

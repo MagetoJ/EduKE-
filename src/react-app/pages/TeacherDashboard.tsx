@@ -6,6 +6,7 @@ import { Badge } from '../components/ui/badge';
 import { Input } from '../components/ui/input';
 import { Label } from '../components/ui/label';
 import { Textarea } from '../components/ui/textarea';
+import TeacherScheduleView from '@/components/TeacherScheduleView';
 import {
   Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter, DialogTrigger, DialogDescription
 } from '../components/ui/dialog';
@@ -131,17 +132,6 @@ interface AssignmentSubmissionRow {
   feedback: string | null;
 }
 
-interface TimetableSlotRow {
-  id: number;
-  day_of_week: string;
-  start_time: string;
-  end_time: string;
-  room: string | null;
-  grade_level: string | null;
-  stream_section: string | null;
-  course_name: string;
-}
-
 interface GuardianContact {
   id: number;
   name: string;
@@ -184,7 +174,7 @@ export default function TeacherDashboard() {
   // Homeroom students, loaded lazily only when the Escalate dialog opens
   const [homeroomStudents, setHomeroomStudents] = useState<{ id: number; first_name: string; last_name: string }[]>([]);
 
-const loadDashboard = useCallback(() => {
+  const loadDashboard = useCallback(() => {
     api('/api/teacher-dashboard/overview')
       .then(res => res.json())
       .then((data: DashboardData) => {
@@ -272,7 +262,7 @@ const loadDashboard = useCallback(() => {
         </Button>
       </div>
 
-      {/* Tab Area 0: Homeroom (Only accessible if is_class_teacher === true) */}
+      {/* Tab Area 0: Homeroom */}
       {activeTab === 'homeroom' && dashboardData.homeroom && (
         <Card className="border-blue-100 bg-blue-50/30">
           <CardHeader>
@@ -293,27 +283,27 @@ const loadDashboard = useCallback(() => {
         </Card>
       )}
 
-      {/* Tab Area 0.5: Manage Students (every student the teacher is responsible for) */}
+      {/* Tab Area 0.5: Manage Students */}
       {activeTab === 'students' && (
         <StudentsPanel api={api} />
       )}
 
-      {/* Tab Area 1: Lesson Planning & Schemes of Work */}
+      {/* Tab Area 1: Lesson Planning */}
       {activeTab === 'lessons' && (
         <LessonPlanningPanel api={api} teachingSubjects={dashboardData.teaching_subjects} />
       )}
 
-      {/* Tab Area 1.5: Assignments & Homework */}
+      {/* Tab Area 1.5: Assignments */}
       {activeTab === 'assignments' && (
         <AssignmentsPanel api={api} teachingSubjects={dashboardData.teaching_subjects} />
       )}
 
-      {/* Tab Area 1.7: My Timetable */}
+      {/* Tab Area 1.7: My Timetable Filtered View */}
       {activeTab === 'timetable' && (
-        <MyTimetablePanel api={api} />
+        <TeacherScheduleView />
       )}
 
-      {/* Tab Area 2: Record CBC Competency Matrix Descriptors */}
+      {/* Tab Area 2: CBC Competency Matrix */}
       {activeTab === 'grades' && (
         <div className="space-y-4">
           <Card>
@@ -368,14 +358,7 @@ const loadDashboard = useCallback(() => {
         </div>
       )}
 
-      {/* Tab Area 3: Co-Curricular Tracking */}
-      {activeTab === 'clubs' && (
-         <Card>
-           {/* Your existing club code remains exactly the same here */}
-         </Card>
-      )}
-
-      {/* Tab Area 4: Reports & Requests - everything filed to the HOD */}
+      {/* Tab Area 4: Reports & Requests */}
       {activeTab === 'reports' && <RecentActivity data={dashboardData} />}
     </div>
   );
@@ -447,9 +430,7 @@ function QuickActions({
 function ProgressReportDialog({ api, onSubmitted }: {
   api: ReturnType<typeof useApi>; 
   onSubmitted: () => void;
-})
-  
-  {
+}) {
   const [open, setOpen] = useState(false);
   const [courses, setCourses] = useState<{ id: number; name: string; code: string }[]>([]);
   const [courseId, setCourseId] = useState('');
@@ -493,7 +474,7 @@ function ProgressReportDialog({ api, onSubmitted }: {
       setOpen(false);
       setCourseId(''); setWeekStart(''); setTopics(''); setCoverage('0'); setChallenges(''); setBlockers('');
       onSubmitted();
-    } catch (e) {
+    } catch {
       setError('Could not submit the report. Please try again.');
     } finally {
       setSubmitting(false);
@@ -588,7 +569,7 @@ function EscalateDialog({ api, homeroomStudents, onOpen, onSubmitted }: {
       setOpen(false);
       setStudentId(''); setReason(''); setDetails('');
       onSubmitted();
-    } catch (e) {
+    } catch {
       setError('Could not submit the escalation. Please try again.');
     } finally {
       setSubmitting(false);
@@ -662,7 +643,7 @@ function LeaveRequestDialog({ api, onSubmitted }: { api: ReturnType<typeof useAp
       setOpen(false);
       setStartDate(''); setEndDate(''); setReason('');
       onSubmitted();
-    } catch (e) {
+    } catch {
       setError('Could not submit the request. Please try again.');
     } finally {
       setSubmitting(false);
@@ -1872,76 +1853,5 @@ function AssignmentSubmissionsDialog({ api, assignment, onClose, onGraded }: {
         )}
       </DialogContent>
     </Dialog>
-  );
-}
-
-// ==================== My Timetable ====================
-
-function MyTimetablePanel({ api }: { api: ReturnType<typeof useApi> }) {
-  const [slots, setSlots] = useState<TimetableSlotRow[]>([]);
-  const [loading, setLoading] = useState(true);
-  const [error, setError] = useState('');
-
-  useEffect(() => {
-    let cancelled = false;
-    setLoading(true);
-    setError('');
-    api('/api/teacher-dashboard/my-timetable')
-      .then(res => res.json())
-      .then(data => { if (!cancelled) setSlots(data?.data || []); })
-      .catch(() => { if (!cancelled) setError('Could not load your timetable.'); })
-      .finally(() => { if (!cancelled) setLoading(false); });
-    return () => { cancelled = true; };
-  }, [api]);
-
-  const days = ['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday'];
-  const byDay = days.map(day => ({
-    day,
-    slots: slots.filter(s => s.day_of_week === day).sort((a, b) => (a.start_time || '').localeCompare(b.start_time || '')),
-  }));
-
-  return (
-    <Card>
-      <CardHeader>
-        <CardTitle>My Weekly Timetable</CardTitle>
-      </CardHeader>
-      <CardContent>
-        {loading ? (
-          <div className="flex items-center gap-2 text-sm text-slate-500 py-8 justify-center">
-            <Loader2 className="w-4 h-4 animate-spin" /> Loading timetable...
-          </div>
-        ) : error ? (
-          <p className="text-sm text-red-600">{error}</p>
-        ) : slots.length === 0 ? (
-          <div className="p-8 border border-dashed rounded-lg text-center text-slate-500">
-            No timetable slots have been assigned to you yet. Once the timetable manager schedules your classes, they'll show up here.
-          </div>
-        ) : (
-          <div className="grid grid-cols-1 md:grid-cols-5 gap-3">
-            {byDay.map(({ day, slots: daySlots }) => (
-              <div key={day}>
-                <p className="text-sm font-semibold text-slate-700 mb-2">{day}</p>
-                <div className="space-y-2">
-                  {daySlots.length === 0 ? (
-                    <p className="text-xs text-slate-400">No classes</p>
-                  ) : (
-                    daySlots.map(s => (
-                      <div key={s.id} className="p-2 border rounded-lg bg-slate-50">
-                        <p className="text-xs font-medium text-slate-900">{s.start_time}–{s.end_time}</p>
-                        <p className="text-sm text-slate-800">{s.course_name}</p>
-                        <p className="text-xs text-slate-500">
-                          {s.grade_level}{s.stream_section ? ` ${s.stream_section}` : ''}
-                          {s.room && ` · ${s.room}`}
-                        </p>
-                      </div>
-                    ))
-                  )}
-                </div>
-              </div>
-            ))}
-          </div>
-        )}
-      </CardContent>
-    </Card>
   );
 }

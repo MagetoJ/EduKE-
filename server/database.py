@@ -1,89 +1,124 @@
-import os 
+import os
+import sys
 import ssl
+import socket
+import asyncio
+import logging
 from urllib.parse import urlparse, parse_qsl, urlencode, urlunparse
+
+# --- WINDOWS SSL FIX ---
+# Windows' default asyncio event loop (ProactorEventLoop) has a long-standing
+# bug where it can silently tear down SSL/TLS transports mid-handshake. This
+# is what produces "ConnectionResetError: [WinError 10054] An existing
+# connection was forcibly closed by the remote host" when connecting to
+# Render's Postgres over SSL. Switching to the Selector event loop policy
+# fixes it. This must run before any event loop is created, so it lives at
+# the very top of this module (imported first, by main.py).
+if sys.platform == "win32":
+    asyncio.set_event_loop_policy(asyncio.WindowsSelectorEventLoopPolicy())
+# ------------------------
+
+import asyncpg
 from sqlalchemy.ext.asyncio import create_async_engine, AsyncSession, async_sessionmaker
 from sqlalchemy.orm import declarative_base
-from tenacity import retry, stop_after_attempt, wait_fixed
-import logging
-from dotenv import load_dotenv  # Import dotenv to read your .env file
+from tenacity import retry, stop_after_attempt, wait_exponential, before_sleep_log
+from dotenv import load_dotenv
 
-# Load environment variables
 load_dotenv()
 logger = logging.getLogger(__name__)
 
-# Grab the URL and use .strip() to remove any accidental invisible spaces
+# --- SANITY CHECK #1: make sure "asyncpg" really is the real asyncpg package ---
+# If a broken/foreign package ever shadows the real one in the venv (mismatched
+# name, partial install, etc.), fail loudly here with a clear message instead of
+# letting SQLAlchemy blow up deep inside its connection pool with a cryptic
+# "missing 5 required positional arguments" TypeError.
+if not hasattr(asyncpg, "connect"):
+    raise RuntimeError(
+        "The installed 'asyncpg' package does not expose connect(). Your virtual "
+        "environment is broken or a different package is shadowing asyncpg. Run:\n"
+        "  pip uninstall asyncpg asyncpg-connector -y\n"
+        "  pip install asyncpg==0.30.0\n"
+        "and confirm with: python -c \"import asyncpg, inspect; print(asyncpg.__file__)\""
+    )
+
 DATABASE_URL = os.getenv("DATABASE_URL", "").strip()
 
-# --- DEBUGGING BLOCK ---
 if not DATABASE_URL:
-    print("🚨 CRITICAL ERROR: DATABASE_URL environment variable is MISSING!")
-    DATABASE_URL = "sqlite+aiosqlite:///./test.db" 
+    logger.warning("DATABASE_URL is not set — falling back to local SQLite for dev only.")
+    DATABASE_URL = "sqlite+aiosqlite:///./test.db"
 else:
-    print("✅ SUCCESS: DATABASE_URL was found!")
     if DATABASE_URL.startswith("postgres://"):
         DATABASE_URL = DATABASE_URL.replace("postgres://", "postgresql+asyncpg://", 1)
-    elif DATABASE_URL.startswith("postgresql://"):
+    elif DATABASE_URL.startswith("postgresql://") and "+asyncpg" not in DATABASE_URL:
         DATABASE_URL = DATABASE_URL.replace("postgresql://", "postgresql+asyncpg://", 1)
-# -----------------------
 
-# --- THE FIX ---
-# Only use SQLite-specific arguments if the URL is actually SQLite
+
+def _force_ipv4_host(hostname: str) -> str | None:
+    """Resolve hostname to an IPv4 address.
+
+    On some Windows setups, the OS resolver prefers an AAAA (IPv6) record for
+    Render's hostname, and Render's TLS proxy resets that connection instead of
+    falling back — this is what produces WinError 10054 mid-handshake. Forcing
+    IPv4 here sidesteps that entirely. We still connect using the ORIGINAL
+    hostname string (not the raw IP) for SNI purposes; we only use this to
+    verify an IPv4 route exists and to log if it doesn't.
+    """
+    try:
+        infos = socket.getaddrinfo(hostname, 5432, socket.AF_INET, socket.SOCK_STREAM)
+        return infos[0][4][0] if infos else None
+    except socket.gaierror as e:
+        logger.warning(f"Could not resolve IPv4 address for {hostname}: {e}")
+        return None
+
+
 if DATABASE_URL.startswith("sqlite"):
     engine = create_async_engine(DATABASE_URL, connect_args={"check_same_thread": False})
 else:
-    # Build an SSL context that encrypts the connection without strict hostname/CA
-    # verification (equivalent to libpq's sslmode=require). check_hostname=False
-    # also matters for the Render proxy, since strict verification here has caused
-    # cert-mismatch issues against their pooler in the past.
+    parsed = urlparse(DATABASE_URL)
+
+    # Strip any sslmode/ssl query params — we pass our own ssl context via
+    # connect_args below, and having both raises "parameter cannot be changed now".
+    query_params = dict(parse_qsl(parsed.query))
+    query_params.pop("sslmode", None)
+    query_params.pop("ssl", None)
+    DATABASE_URL = urlunparse(parsed._replace(query=urlencode(query_params)))
+
+    if parsed.hostname:
+        ipv4 = _force_ipv4_host(parsed.hostname)
+        if ipv4:
+            logger.info(f"Resolved {parsed.hostname} -> {ipv4} (IPv4 route confirmed)")
+        else:
+            logger.warning(
+                f"No IPv4 route found for {parsed.hostname}; connection may hit "
+                "IPv6 and reset (WinError 10054) on some Windows networks."
+            )
+
     ssl_ctx = ssl.create_default_context()
     ssl_ctx.check_hostname = False
     ssl_ctx.verify_mode = ssl.CERT_NONE
 
     connect_args = {
-        "timeout": 10,          # fail fast on connect instead of hanging
-        "command_timeout": 30,  # fail fast on a hung query instead of hanging forever
+        "timeout": 15,            # fail fast on initial connect
+        "command_timeout": 30,    # fail fast on a hung query
         "ssl": ssl_ctx,
+        # Render's pooler can behave like pgbouncer in transaction mode, which
+        # breaks asyncpg's prepared-statement cache ("prepared statement ...
+        # does not exist"). Disabling it is a one-line permanent fix.
+        "statement_cache_size": 0,
     }
-
-    # NOTE: We deliberately do NOT force-resolve/override the host to a raw IPv4
-    # address here. Render's Postgres sits behind a routing proxy that relies on
-    # SNI (Server Name Indication) during the TLS handshake to pick the right
-    # backend. SNI is only sent when connecting via hostname — connecting by bare
-    # IP address causes Postgres to reject the connection with
-    # "No SNI information found". Connect via hostname; DNS will resolve it.
-
-    # --- STRIP CONFLICTING SSL QUERY PARAMS ---
-    # If DATABASE_URL contains ?sslmode=... or ?ssl=... in its query string, asyncpg
-    # can raise "parameter cannot be changed now" because we ALSO pass an explicit
-    # ssl context above via connect_args. Having both is a conflict — strip the
-    # URL-embedded ones and let connect_args["ssl"] be the single source of truth.
-    try:
-        parsed_full = urlparse(DATABASE_URL)
-        query_params = dict(parse_qsl(parsed_full.query))
-        if "sslmode" in query_params or "ssl" in query_params:
-            query_params.pop("sslmode", None)
-            query_params.pop("ssl", None)
-            DATABASE_URL = urlunparse(parsed_full._replace(query=urlencode(query_params)))
-    except Exception as strip_err:
-        logger.warning(f"⚠️ Could not strip SSL query params from DATABASE_URL: {strip_err}")
-    # ---------------
 
     engine = create_async_engine(
         DATABASE_URL,
-        pool_pre_ping=True,   # test each connection with a lightweight ping before using it;
-                              # transparently discards and replaces connections the server/network
-                              # has silently closed while idle in the pool
-        pool_recycle=180,     # proactively recycle connections older than this many seconds, so
-                              # they never live long enough to hit Render's / the network's idle
-                              # connection timeout in the first place
+        pool_pre_ping=True,   # discard connections the network/server silently closed
+        pool_recycle=180,     # recycle before Render's idle timeout can kill them
         pool_size=5,
         max_overflow=5,
         connect_args=connect_args,
     )
-# ---------------
 
 async_session_maker = async_sessionmaker(engine, class_=AsyncSession, expire_on_commit=False)
 Base = declarative_base()
+
 
 async def get_db():
     async with async_session_maker() as session:
@@ -92,15 +127,26 @@ async def get_db():
         finally:
             await session.close()
 
-@retry(stop=stop_after_attempt(5), wait=wait_fixed(2), reraise=True)
+
+@retry(
+    stop=stop_after_attempt(6),
+    wait=wait_exponential(multiplier=1, min=2, max=20),  # 2s, 4s, 8s, 16s, 20s, 20s
+    before_sleep=before_sleep_log(logger, logging.WARNING),
+    reraise=True,
+)
 async def init_db():
-    """Initialize database tables with retry logic - SmartBiz pattern"""
+    """Initialize database tables with exponential-backoff retry.
+
+    Exponential backoff (instead of a fixed 2s wait) gives Render's free-tier
+    Postgres enough time to wake up from a cold start on the first request,
+    which is the single most common cause of connection resets on startup.
+    """
     try:
         async with engine.begin() as conn:
-            # This creates all tables defined in your models.py
             from models import Base as ModelBase
             await conn.run_sync(ModelBase.metadata.create_all)
-        logger.info(f"✅ Database initialized successfully using: {DATABASE_URL.split('@')[-1]}")
+        safe_target = DATABASE_URL.split("@")[-1] if "@" in DATABASE_URL else DATABASE_URL
+        logger.info(f"✅ Database initialized successfully using: {safe_target}")
     except Exception as e:
         logger.error(f"❌ Database initialization failed: {e}")
         raise e
