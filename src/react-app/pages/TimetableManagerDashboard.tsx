@@ -44,7 +44,7 @@ export default function TimetableManagerDashboard() {
   const [teachers, setTeachers] = useState<Teacher[]>([]);
   const [loading, setLoading] = useState<boolean>(true);
   const [generating, setGenerating] = useState<boolean>(false);
-  const [error, setError] = useState<string | null>(null);
+  const [_error, setError] = useState<string | null>(null);
   const [viewMode, setViewMode] = useState<'class' | 'teacher' | 'room'>('class');
   const [selectedFilter, setSelectedFilter] = useState<string>('');
   
