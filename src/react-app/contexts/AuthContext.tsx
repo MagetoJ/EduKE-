@@ -1,6 +1,6 @@
 import React, { createContext, useCallback, useContext, useEffect, useRef, useState } from 'react';
 
-export type UserRole = 'super_admin' | 'admin' | 'teacher' | 'parent' | 'student' | 'registrar' | 'timetable_manager' | 'class_teacher' | 'boarding_master' | 'transport_manager' | 'exam_officer' | 'cbc_coordinator' | 'hod' | 'hr_manager' | 'admission_officer' | 'nurse';
+export type UserRole = 'super_admin' | 'admin' | 'teacher' | 'parent' | 'student' | 'registrar' | 'timetable_manager' | 'class_teacher' | 'boarding_master' | 'transport_manager' | 'exam_officer' | 'cbc_coordinator' | 'hod' | 'hr_manager' | 'admission_officer' | 'nurse' | 'librarian';
 
 export interface User {
   id: string;

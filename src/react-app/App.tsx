@@ -43,7 +43,7 @@ import Subjects from "@/pages/Courses";
 import { routeAllowsRole } from "@/lib/accessControl";
 import HodDashboard from "@/pages/HodDashboard";
 import Departments from "@/pages/Departments";
-
+import Library from "@/pages/Library";
 // Explicit props typing to eliminate the compilation assignment error
 interface ProtectedRouteProps {
   children: React.ReactNode;
@@ -118,7 +118,7 @@ function AppRoutes() {
       <Route path="/change-password" element={<ForcePasswordChange />} />
       <Route path="/login" element={<Navigate to="/dashboard" replace />} />
       <Route path="/" element={<Navigate to="/dashboard" replace />} />
-
+        <Route path="/dashboard/library" element={<Library />} />
       <Route
         path="/dashboard"
         element={

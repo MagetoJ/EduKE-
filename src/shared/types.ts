@@ -30,7 +30,8 @@ export type UserRole =
   | 'hod' 
   | 'hr_manager' 
   | 'admission_officer' 
-  | 'nurse';
+  | 'nurse'
+  | 'librarian';
 
 export interface User {
   id: string;

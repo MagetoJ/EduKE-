@@ -151,6 +151,8 @@ app.include_router(lesson_plans_router, dependencies=[Depends(get_current_user)]
 app.include_router(messaging_router, dependencies=[Depends(get_current_user)])
 app.include_router(parents.router)
 app.include_router(portal_api.router)
+
+app.include_router(library_router)
 app.include_router(teacher_dashboard_router, dependencies=[Depends(get_current_user)])
 app.include_router(timetable_manager_router)
 app.include_router(
@@ -604,4 +606,4 @@ async def root():
 
 if __name__ == "__main__":
     import uvicorn
-    uvicorn.run("main:app", host="0.0.0.0", port=int(os.environ.get("PORT", 8000)), reload=True)
+    uvicorn.run("main:app", host="0.0.0.0", port=int(os.environ.get("PORT", 3001)), reload=True)
