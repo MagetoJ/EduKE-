@@ -192,6 +192,11 @@ export default function Dashboard() {
     return <Navigate to="/dashboard/timetable-manager" replace />
   }
 
+  // REDIRECT LOGIC FOR LIBRARIAN
+  if (user.role === 'librarian') {
+    return <Navigate to="/dashboard/librarian" replace />
+  }
+
   if (isLoading) {
     return <p className="text-sm text-muted-foreground p-6">Loading workspace nodes...</p>
   }

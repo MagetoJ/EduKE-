@@ -220,11 +220,11 @@ const navGroups: NavGroup[] = [
         roles: ['admin', 'super_admin']
       },
       {
-  name: 'Library',
-  href: '/dashboard/library',
-  icon: BookOpen,
-  roles: ['super_admin', 'admin', 'librarian', 'teacher', 'student', 'parent']
-}
+        title: 'Library',
+        href: '/dashboard/library',
+        icon: BookOpen,
+        roles: ['super_admin', 'admin', 'librarian', 'teacher', 'student', 'parent']
+      }
     ]
   }
 ]

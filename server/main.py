@@ -152,7 +152,6 @@ app.include_router(messaging_router, dependencies=[Depends(get_current_user)])
 app.include_router(parents.router)
 app.include_router(portal_api.router)
 
-app.include_router(library_router)
 app.include_router(teacher_dashboard_router, dependencies=[Depends(get_current_user)])
 app.include_router(timetable_manager_router)
 app.include_router(

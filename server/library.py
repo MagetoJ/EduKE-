@@ -1,36 +1,27 @@
 from fastapi import APIRouter, Depends, HTTPException, status
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select, func, or_, and_
+from sqlalchemy.orm import selectinload
 from typing import List, Optional
 from pydantic import BaseModel, Field
 from datetime import date, datetime, timedelta
 
 from database import get_db
-from models import User, LibraryBook, LibraryIssue, Student, School
+from models import User, LibraryBook, LibraryIssue, Student, School, school_users
 from auth import get_current_user, get_current_school, require_roles
 
 router = APIRouter(prefix="/api/library", tags=["Library"])
 
 # --- Role groups -------------------------------------------------------
-# Anyone who can catalog books, issue/return/renew, and see the full
-# ledger. Mirrors the pattern in leave_requests.py / discipline.py.
 LIBRARY_MANAGE_ROLES = ("admin", "librarian", "super_admin")
-
-# Everyone who can at least browse the catalog and see their own loans.
-# Deliberately broad — a school-wide OPAC, not a management console.
 LIBRARY_VIEW_ROLES = (
     "admin", "librarian", "super_admin", "teacher", "class_teacher", "hod",
     "student", "parent", "registrar", "exam_officer", "cbc_coordinator",
 )
 
-# Flat fine rate applied per day overdue. There's no per-school setting
-# for this yet (School model has no library config), so it's a constant
-# here. If/when schools need to customize it, promote this into a School
-# column (e.g. library_fine_per_day) and read it off `school`.
 FINE_PER_DAY_KES = 5.0
 DEFAULT_LOAN_DAYS = 14
 RENEWAL_DAYS = 14
-
 
 # --- Schemas -------------------------------------------------------------
 class BookCreate(BaseModel):
@@ -44,7 +35,6 @@ class BookCreate(BaseModel):
     total_copies: int = Field(default=1, ge=1)
     location_rack: Optional[str] = None
 
-
 class BookUpdate(BaseModel):
     title: Optional[str] = None
     author: Optional[str] = None
@@ -56,19 +46,33 @@ class BookUpdate(BaseModel):
     total_copies: Optional[int] = Field(default=None, ge=1)
     location_rack: Optional[str] = None
 
-
 class IssueBookRequest(BaseModel):
     book_id: int
     student_id: Optional[int] = None
     staff_id: Optional[int] = None
-    due_date: Optional[date] = None  # defaults to today + DEFAULT_LOAN_DAYS
-
+    due_date: Optional[date] = None
 
 class ReturnBookRequest(BaseModel):
     fine_paid: bool = False
 
-
 # --- Helpers ---------------------------------------------------------------
+ISSUE_RELATIONS = (
+    selectinload(LibraryIssue.book),
+    selectinload(LibraryIssue.student),
+    selectinload(LibraryIssue.staff),
+)
+
+async def _get_issue_or_404(db: AsyncSession, issue_id: int, school_id: int) -> LibraryIssue:
+    result = await db.execute(
+        select(LibraryIssue)
+        .options(*ISSUE_RELATIONS)
+        .where(LibraryIssue.id == issue_id, LibraryIssue.school_id == school_id)
+    )
+    issue = result.scalar_one_or_none()
+    if not issue:
+        raise HTTPException(status_code=404, detail="Loan record not found")
+    return issue
+
 def _book_out(book: LibraryBook) -> dict:
     return {
         "id": book.id,
@@ -83,7 +87,6 @@ def _book_out(book: LibraryBook) -> dict:
         "available_copies": book.available_copies,
         "location_rack": book.location_rack,
     }
-
 
 def _issue_out(issue: LibraryIssue) -> dict:
     is_overdue = issue.status == "issued" and issue.due_date < date.today()
@@ -112,7 +115,6 @@ def _issue_out(issue: LibraryIssue) -> dict:
         "fine_paid": issue.fine_paid,
     }
 
-
 # --- Catalog ---------------------------------------------------------------
 @router.get("/books")
 async def get_books(
@@ -122,7 +124,6 @@ async def get_books(
     db: AsyncSession = Depends(get_db),
     _: User = Depends(require_roles(*LIBRARY_VIEW_ROLES)),
 ):
-    """Browse/search the catalog. Open to any school role (student/parent included)."""
     query = select(LibraryBook).where(LibraryBook.school_id == school.id)
 
     if q:
@@ -142,7 +143,6 @@ async def get_books(
     books = result.scalars().all()
     return {"success": True, "data": [_book_out(b) for b in books]}
 
-
 @router.post("/books")
 async def add_book(
     payload: BookCreate,
@@ -159,7 +159,6 @@ async def add_book(
     await db.commit()
     await db.refresh(new_book)
     return {"success": True, "message": "Book added to catalog", "data": _book_out(new_book)}
-
 
 @router.put("/books/{book_id}")
 async def update_book(
@@ -178,7 +177,6 @@ async def update_book(
 
     updates = payload.model_dump(exclude_unset=True)
 
-    # Keep available_copies consistent if total_copies shrinks/grows.
     if "total_copies" in updates:
         copies_on_loan = book.total_copies - book.available_copies
         new_total = updates["total_copies"]
@@ -195,7 +193,6 @@ async def update_book(
     await db.commit()
     await db.refresh(book)
     return {"success": True, "message": "Book updated", "data": _book_out(book)}
-
 
 @router.delete("/books/{book_id}")
 async def delete_book(
@@ -223,17 +220,19 @@ async def delete_book(
     await db.commit()
     return {"success": True, "message": "Book removed from catalog"}
 
-
 # --- Issues / circulation ---------------------------------------------------
 @router.get("/issues")
 async def get_issued_books(
-    status_filter: Optional[str] = None,  # issued | returned | overdue
+    status_filter: Optional[str] = None, 
     school: School = Depends(get_current_school),
     db: AsyncSession = Depends(get_db),
     _: User = Depends(require_roles(*LIBRARY_MANAGE_ROLES)),
 ):
-    query = select(LibraryIssue).where(LibraryIssue.school_id == school.id).order_by(
-        LibraryIssue.issue_date.desc()
+    query = (
+        select(LibraryIssue)
+        .options(*ISSUE_RELATIONS)
+        .where(LibraryIssue.school_id == school.id)
+        .order_by(LibraryIssue.issue_date.desc())
     )
     result = await db.execute(query)
     issues = result.scalars().all()
@@ -244,16 +243,12 @@ async def get_issued_books(
 
     return {"success": True, "data": data}
 
-
 @router.get("/my-loans")
 async def get_my_loans(
     token_data: tuple = Depends(get_current_user),
     school: School = Depends(get_current_school),
     db: AsyncSession = Depends(get_db),
 ):
-    """Self-service: a student or staff member's own borrow history. No role
-    gate beyond being an authenticated member of the school — students and
-    parents need this to check what's out/overdue."""
     current_user, _payload = token_data
 
     student_result = await db.execute(
@@ -268,11 +263,13 @@ async def get_my_loans(
         conditions.append(LibraryIssue.staff_id == current_user.id)
 
     result = await db.execute(
-        select(LibraryIssue).where(and_(*conditions)).order_by(LibraryIssue.issue_date.desc())
+        select(LibraryIssue)
+        .options(*ISSUE_RELATIONS)
+        .where(and_(*conditions))
+        .order_by(LibraryIssue.issue_date.desc())
     )
     issues = result.scalars().all()
     return {"success": True, "data": [_issue_out(i) for i in issues]}
-
 
 @router.post("/issues")
 async def issue_book(
@@ -298,6 +295,37 @@ async def issue_book(
     if book.available_copies <= 0:
         raise HTTPException(status_code=400, detail="No copies of this book are currently available")
 
+    if payload.student_id:
+        student_check = await db.execute(
+            select(Student.id).where(
+                Student.id == payload.student_id, Student.school_id == school.id
+            )
+        )
+        if student_check.scalar_one_or_none() is None:
+            raise HTTPException(status_code=404, detail="Student not found in this school")
+    if payload.staff_id:
+        staff_check = await db.execute(
+            select(school_users.c.user_id).where(
+                school_users.c.user_id == payload.staff_id,
+                school_users.c.school_id == school.id,
+                school_users.c.is_active == True,
+            )
+        )
+        if staff_check.first() is None:
+            raise HTTPException(status_code=404, detail="Staff member not found in this school")
+
+    dup_conditions = [
+        LibraryIssue.book_id == payload.book_id,
+        LibraryIssue.status == "issued",
+    ]
+    if payload.student_id:
+        dup_conditions.append(LibraryIssue.student_id == payload.student_id)
+    else:
+        dup_conditions.append(LibraryIssue.staff_id == payload.staff_id)
+    dup_check = await db.execute(select(LibraryIssue.id).where(and_(*dup_conditions)))
+    if dup_check.scalar_one_or_none() is not None:
+        raise HTTPException(status_code=400, detail="This borrower already has an active loan of this book")
+
     due_date = payload.due_date or (date.today() + timedelta(days=DEFAULT_LOAN_DAYS))
 
     new_issue = LibraryIssue(
@@ -314,9 +342,9 @@ async def issue_book(
 
     db.add(new_issue)
     await db.commit()
-    await db.refresh(new_issue)
-    return {"success": True, "message": "Book issued successfully", "data": _issue_out(new_issue)}
 
+    issue = await _get_issue_or_404(db, new_issue.id, school.id)
+    return {"success": True, "message": "Book issued successfully", "data": _issue_out(issue)}
 
 @router.put("/issues/{issue_id}/return")
 async def return_book(
@@ -326,12 +354,9 @@ async def return_book(
     db: AsyncSession = Depends(get_db),
     _: User = Depends(require_roles(*LIBRARY_MANAGE_ROLES)),
 ):
-    result = await db.execute(
-        select(LibraryIssue).where(LibraryIssue.id == issue_id, LibraryIssue.school_id == school.id)
-    )
-    issue = result.scalar_one_or_none()
-    if not issue or issue.status == "returned":
-        raise HTTPException(status_code=400, detail="Invalid issue record or already returned")
+    issue = await _get_issue_or_404(db, issue_id, school.id)
+    if issue.status == "returned":
+        raise HTTPException(status_code=400, detail="This loan has already been returned")
 
     today = date.today()
     issue.status = "returned"
@@ -348,9 +373,9 @@ async def return_book(
         book.available_copies += 1
 
     await db.commit()
-    await db.refresh(issue)
-    return {"success": True, "message": "Book returned successfully", "data": _issue_out(issue)}
 
+    issue = await _get_issue_or_404(db, issue_id, school.id)
+    return {"success": True, "message": "Book returned successfully", "data": _issue_out(issue)}
 
 @router.put("/issues/{issue_id}/renew")
 async def renew_book(
@@ -359,18 +384,15 @@ async def renew_book(
     db: AsyncSession = Depends(get_db),
     _: User = Depends(require_roles(*LIBRARY_MANAGE_ROLES)),
 ):
-    result = await db.execute(
-        select(LibraryIssue).where(LibraryIssue.id == issue_id, LibraryIssue.school_id == school.id)
-    )
-    issue = result.scalar_one_or_none()
-    if not issue or issue.status != "issued":
+    issue = await _get_issue_or_404(db, issue_id, school.id)
+    if issue.status != "issued":
         raise HTTPException(status_code=400, detail="Only active loans can be renewed")
 
-    issue.due_date = issue.due_date + timedelta(days=RENEWAL_DAYS)
+    issue.due_date = max(issue.due_date, date.today()) + timedelta(days=RENEWAL_DAYS)
     await db.commit()
-    await db.refresh(issue)
-    return {"success": True, "message": "Loan renewed", "data": _issue_out(issue)}
 
+    issue = await _get_issue_or_404(db, issue_id, school.id)
+    return {"success": True, "message": "Loan renewed", "data": _issue_out(issue)}
 
 # --- Dashboard summary -------------------------------------------------------
 @router.get("/stats")

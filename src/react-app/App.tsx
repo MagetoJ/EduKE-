@@ -42,6 +42,7 @@ import TimetableManagerDashboard from "@/pages/TimetableManagerDashboard";
 import Subjects from "@/pages/Courses";
 import { routeAllowsRole } from "@/lib/accessControl";
 import HodDashboard from "@/pages/HodDashboard";
+import LibrarianDashboard from "@/pages/LibrarianDashboard";
 import Departments from "@/pages/Departments";
 import Library from "@/pages/Library";
 // Explicit props typing to eliminate the compilation assignment error
@@ -118,7 +119,6 @@ function AppRoutes() {
       <Route path="/change-password" element={<ForcePasswordChange />} />
       <Route path="/login" element={<Navigate to="/dashboard" replace />} />
       <Route path="/" element={<Navigate to="/dashboard" replace />} />
-        <Route path="/dashboard/library" element={<Library />} />
       <Route
         path="/dashboard"
         element={
@@ -140,8 +140,19 @@ function AppRoutes() {
           }
         />
 
+        {/* Core Librarian App Route Setup */}
+        <Route
+          path="librarian"
+          element={
+            <ProtectedRoute allowedRoles={['librarian']}>
+              <LibrarianDashboard />
+            </ProtectedRoute>
+          }
+        />
+
         {/* Remaining Core Functional Architecture Sub-Routes */}
         <Route path="timetable-manager" element={<TimetableManagerDashboard />} />
+        <Route path="library" element={<Library />} />
         <Route path="subjects" element={<RoleRoute><Subjects /></RoleRoute>} />
         <Route path="students" element={<Students />} />
         <Route path="students/:id" element={<StudentProfile />} />
