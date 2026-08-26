@@ -1,45 +1,48 @@
 // src/react-app/pages/NurseDashboard.tsx
 
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useCallback } from 'react';
 import { Card, CardHeader, CardTitle, CardContent } from '../components/ui/card';
 import { Button } from '../components/ui/button';
 import { Input } from '../components/ui/input';
-import { clinicService } from '../lib/clinicService';
+import { useApi } from '../contexts/AuthContext';
+import { clinicService, StudentSearchResult, ClinicStats } from '../lib/clinicService';
 
 export default function NurseDashboard() {
+  const api = useApi();
+
   const [searchQuery, setSearchQuery] = useState('');
-  const [searchResults, setSearchResults] = useState([]);
-  const [stats, setStats] = useState({ pending_meds: 0, low_stock: 0, total_visits: 0 });
+  const [searchResults, setSearchResults] = useState<StudentSearchResult[]>([]);
+  const [stats, setStats] = useState<ClinicStats>({ pending_meds: 0, low_stock: 0, total_visits: 0 });
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
 
   // Fetch initial dashboard stats on mount
-  useEffect(() => {
-    const loadStats = async () => {
-      try {
-        setIsLoading(true);
-        const data = await clinicService.getDashboardStats();
-        setStats(data);
-      } catch (err: any) {
-        setError(err.message);
-      } finally {
-        setIsLoading(false);
-      }
-    };
+  const loadStats = useCallback(async () => {
+    try {
+      setIsLoading(true);
+      setError(null);
+      const data = await clinicService.getDashboardStats(api);
+      setStats(data);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Failed to load clinic stats');
+    } finally {
+      setIsLoading(false);
+    }
+  }, [api]);
 
+  useEffect(() => {
     loadStats();
-  }, []);
+  }, [loadStats]);
 
   // Handle student search
   const handleSearch = async () => {
     if (!searchQuery.trim()) return;
-    
+
     try {
-      const results = await clinicService.searchStudents(searchQuery);
+      const results = await clinicService.searchStudents(api, searchQuery);
       setSearchResults(results);
-    } catch (err: any) {
-      console.error("Search failed:", err);
-      // Depending on your UI setup, you might trigger a toast notification here
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Search failed');
     }
   };
 
@@ -89,8 +92,8 @@ export default function NurseDashboard() {
         </CardHeader>
         <CardContent>
           <div className="flex gap-4 mb-4">
-            <Input 
-              placeholder="Search by student name or ID..." 
+            <Input
+              placeholder="Search by student name or ID..."
               value={searchQuery}
               onChange={(e) => setSearchQuery(e.target.value)}
               onKeyDown={(e) => e.key === 'Enter' && handleSearch()}
@@ -104,7 +107,7 @@ export default function NurseDashboard() {
              <div className="mt-4 border rounded-md p-4">
                <h3 className="font-semibold mb-2">Results:</h3>
                <ul className="space-y-2">
-                 {searchResults.map((student: any) => (
+                 {searchResults.map((student) => (
                    <li key={student.student_id} className="flex justify-between items-center p-2 hover:bg-gray-50 rounded">
                      <span>{student.name} - {student.grade}</span>
                      <Button size="sm" variant="secondary">View Profile</Button>

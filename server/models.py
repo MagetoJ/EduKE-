@@ -837,6 +837,8 @@ class StudentHealthProfile(Base):
 
     # Fixed: Uses Integer to match your existing students.id
     student_id = Column(Integer, ForeignKey('students.id', ondelete='CASCADE'), primary_key=True)
+    # Denormalized for direct tenant filtering (matches FeeInvoice/LibraryBookCopy convention)
+    school_id = Column(Integer, ForeignKey('schools.id', ondelete='CASCADE'), nullable=False, index=True)
     blood_type = Column(String(5))
     critical_allergies = Column(ARRAY(String), default=[])
     chronic_conditions = Column(ARRAY(String), default=[])
@@ -853,7 +855,8 @@ class ClinicInventory(Base):
 
     # UUID is kept here as it's a new table and prevents barcode/ID guessing
     medication_id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
-    student_id = Column(Integer, ForeignKey('student_health_profiles.student_id', ondelete='CASCADE'))
+    school_id = Column(Integer, ForeignKey('schools.id', ondelete='CASCADE'), nullable=False, index=True)
+    student_id = Column(Integer, ForeignKey('student_health_profiles.student_id', ondelete='CASCADE'), nullable=True)
     medication_name = Column(String(100), nullable=False)
     dosage_instructions = Column(Text)
     current_stock = Column(Integer, default=0)
@@ -866,6 +869,7 @@ class ClinicLog(Base):
     __tablename__ = 'clinic_logs'
 
     log_id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    school_id = Column(Integer, ForeignKey('schools.id', ondelete='CASCADE'), nullable=False, index=True)
     student_id = Column(Integer, ForeignKey('student_health_profiles.student_id', ondelete='CASCADE'))
     
     # Fixed: Now maps to the logged-in nurse's user ID

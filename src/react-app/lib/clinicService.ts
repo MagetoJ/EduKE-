@@ -1,64 +1,50 @@
 // src/react-app/lib/clinicService.ts
+//
+// Thin wrappers around the clinic API. These take the app's authenticated
+// fetcher (from useApi() in AuthContext) so auth/refresh/logout handling
+// stays centralized, matching the convention used by Library/Librarian pages.
 
-// Adjust this base URL based on your environment config
-const API_BASE_URL = import.meta.env.VITE_API_URL || '';
-
-// Helper to get the auth token (assuming you store it in localStorage)
-const getAuthHeaders = () => {
-  const token = localStorage.getItem('token');
-  return {
-    'Content-Type': 'application/json',
-    ...(token ? { Authorization: `Bearer ${token}` } : {}),
-  };
-};
+export type ApiFetch = (url: string, options?: RequestInit) => Promise<Response>;
 
 export interface DispensePayload {
-  student_id: string;
-  nurse_id: string;
+  student_id: number;
   medication_id: string;
   amount: number;
 }
 
+export interface ClinicStats {
+  pending_meds: number;
+  low_stock: number;
+  total_visits: number;
+}
+
+export interface StudentSearchResult {
+  student_id: string;
+  name: string;
+  grade: string;
+  has_profile: boolean;
+  critical_allergies: string[];
+}
+
 export const clinicService = {
-  /**
-   * Dispense medication and log the visit
-   */
-  async dispenseMedication(payload: DispensePayload) {
-    const response = await fetch(`${API_BASE_URL}/api/clinic/dispense`, {
+  /** Dispense medication and log the visit */
+  async dispenseMedication(api: ApiFetch, payload: DispensePayload) {
+    const response = await api('/api/clinic/dispense', {
       method: 'POST',
-      headers: getAuthHeaders(),
       body: JSON.stringify(payload),
     });
-
-    if (!response.ok) {
-      const error = await response.json();
-      throw new Error(error.detail || 'Failed to dispense medication');
-    }
-
     return response.json();
   },
 
-  /**
-   * Fetch daily statistics for the dashboard
-   */
-  async getDashboardStats() {
-    const response = await fetch(`${API_BASE_URL}/api/clinic/stats`, {
-      headers: getAuthHeaders(),
-    });
-
-    if (!response.ok) throw new Error('Failed to fetch clinic stats');
+  /** Fetch daily statistics for the dashboard */
+  async getDashboardStats(api: ApiFetch): Promise<ClinicStats> {
+    const response = await api('/api/clinic/stats');
     return response.json();
   },
 
-  /**
-   * Search for student health profiles
-   */
-  async searchStudents(query: string) {
-    const response = await fetch(`${API_BASE_URL}/api/clinic/students/search?q=${encodeURIComponent(query)}`, {
-      headers: getAuthHeaders(),
-    });
-
-    if (!response.ok) throw new Error('Failed to search students');
+  /** Search for student health profiles */
+  async searchStudents(api: ApiFetch, query: string): Promise<StudentSearchResult[]> {
+    const response = await api(`/api/clinic/students/search?q=${encodeURIComponent(query)}`);
     return response.json();
-  }
+  },
 };

@@ -1,122 +1,161 @@
 # server/router/clinic.py
 
-from fastapi import APIRouter, Depends, HTTPException, Query
-from sqlalchemy.orm import Session
-from sqlalchemy import func
-from datetime import datetime, date
+from datetime import date
 from typing import List, Optional
-from pydantic import BaseModel
+from uuid import UUID
 
-# Adjust these imports based on your exact EduKE project structure
+from fastapi import APIRouter, Depends, HTTPException, Query
+from pydantic import BaseModel
+from sqlalchemy import func, select
+from sqlalchemy.ext.asyncio import AsyncSession
+
 from database import get_db
-from models import ClinicInventory, ClinicLog, StudentHealthProfile
-from models import Student # Assuming you have a core Student model
+from auth import get_current_school, require_roles
+from models import ClinicInventory, ClinicLog, School, Student, StudentHealthProfile, User
 
 router = APIRouter(prefix="/api/clinic", tags=["clinic"])
 
-# --- Pydantic Schemas for Request Validation ---
+# --- Pydantic Schemas ---
+
+
 class DispenseRequest(BaseModel):
-    student_id: str
-    nurse_id: str
-    medication_id: str
+    student_id: int
+    medication_id: UUID
     amount: int
+
 
 # --- API Endpoints ---
 
+
 @router.get("/stats")
-def get_clinic_stats(db: Session = Depends(get_db)):
-    """
-    Fetches the daily statistics for the Nurse Dashboard.
-    """
+async def get_clinic_stats(
+    current_user: User = Depends(require_roles("nurse")),
+    current_school: School = Depends(get_current_school),
+    db: AsyncSession = Depends(get_db),
+):
+    """Fetches the daily statistics for the Nurse Dashboard, scoped to the current school."""
     today = date.today()
-    
-    # 1. Count items where current_stock is at or below the low_stock_threshold
-    low_stock_count = db.query(ClinicInventory).filter(
-        ClinicInventory.current_stock <= ClinicInventory.low_stock_threshold
-    ).count()
 
-    # 2. Count total clinic logs created today
-    total_visits_today = db.query(ClinicLog).filter(
-        func.date(ClinicLog.timestamp) == today
-    ).count()
+    low_stock_result = await db.execute(
+        select(func.count()).select_from(ClinicInventory).where(
+            ClinicInventory.school_id == current_school.id,
+            ClinicInventory.current_stock <= ClinicInventory.low_stock_threshold,
+        )
+    )
+    low_stock_count = low_stock_result.scalar_one()
 
-    # 3. Pending meds (This would typically query a MedicationSchedule table)
-    # For now, we return a mocked placeholder value to satisfy the UI
-    pending_meds_count = 12 
+    total_visits_result = await db.execute(
+        select(func.count()).select_from(ClinicLog).where(
+            ClinicLog.school_id == current_school.id,
+            func.date(ClinicLog.timestamp) == today,
+        )
+    )
+    total_visits_today = total_visits_result.scalar_one()
+
+    pending_meds_result = await db.execute(
+        select(func.count()).select_from(ClinicLog).where(
+            ClinicLog.school_id == current_school.id,
+            func.date(ClinicLog.timestamp) == today,
+            ClinicLog.visit_type == "Pending Medication",
+        )
+    )
+    pending_meds_count = pending_meds_result.scalar_one()
 
     return {
         "pending_meds": pending_meds_count,
         "low_stock": low_stock_count,
-        "total_visits": total_visits_today
+        "total_visits": total_visits_today,
     }
 
 
 @router.get("/students/search")
-def search_students(q: str = Query(..., min_length=1), db: Session = Depends(get_db)):
-    """
-    Searches for students by name and attaches basic health profile flags.
-    """
+async def search_students(
+    q: str = Query(..., min_length=1),
+    current_user: User = Depends(require_roles("nurse")),
+    current_school: School = Depends(get_current_school),
+    db: AsyncSession = Depends(get_db),
+):
+    """Searches for students within the current school and attaches basic health profile flags."""
     search_pattern = f"%{q}%"
-    
-    # Join the core Student table with the StudentHealthProfile table
-    results = db.query(Student, StudentHealthProfile).outerjoin(
-        StudentHealthProfile, Student.id == StudentHealthProfile.student_id
-    ).filter(
-        (Student.first_name.ilike(search_pattern)) | 
-        (Student.last_name.ilike(search_pattern))
-    ).limit(10).all()
+
+    stmt = (
+        select(Student, StudentHealthProfile)
+        .outerjoin(StudentHealthProfile, Student.id == StudentHealthProfile.student_id)
+        .where(
+            Student.school_id == current_school.id,
+            (Student.first_name.ilike(search_pattern)) | (Student.last_name.ilike(search_pattern)),
+        )
+        .limit(10)
+    )
+    result = await db.execute(stmt)
 
     response = []
-    for student, profile in results:
+    for student, profile in result.all():
         response.append({
             "student_id": str(student.id),
             "name": f"{student.first_name} {student.last_name}",
-            # Fallback if your Student model uses a different field for class/grade
-            "grade": getattr(student, 'current_class', 'N/A'), 
+            "grade": student.grade,
             "has_profile": profile is not None,
-            "critical_allergies": profile.critical_allergies if profile else []
+            "critical_allergies": profile.critical_allergies if profile else [],
         })
-    
+
     return response
 
 
 @router.post("/dispense")
-def dispense_medication(payload: DispenseRequest, db: Session = Depends(get_db)):
-    """
-    Deducts stock from inventory and creates an immutable clinic log.
-    """
-    # 1. Fetch inventory item
-    inventory_item = db.query(ClinicInventory).filter(
-        ClinicInventory.medication_id == payload.medication_id
-    ).first()
-    
+async def dispense_medication(
+    payload: DispenseRequest,
+    current_user: User = Depends(require_roles("nurse")),
+    current_school: School = Depends(get_current_school),
+    db: AsyncSession = Depends(get_db),
+):
+    """Deducts stock from clinic inventory and creates an immutable clinic log, scoped to the current school."""
+
+    # 1. Confirm the student belongs to this school (tenant check)
+    student_result = await db.execute(
+        select(Student).where(Student.id == payload.student_id, Student.school_id == current_school.id)
+    )
+    student = student_result.scalar_one_or_none()
+    if not student:
+        raise HTTPException(status_code=404, detail="Student not found in this school")
+
+    # 2. Fetch inventory item, also scoped to this school
+    inventory_result = await db.execute(
+        select(ClinicInventory).where(
+            ClinicInventory.medication_id == payload.medication_id,
+            ClinicInventory.school_id == current_school.id,
+        )
+    )
+    inventory_item = inventory_result.scalar_one_or_none()
+
     if not inventory_item:
         raise HTTPException(status_code=404, detail="Medication not found")
-        
+
     if inventory_item.current_stock < payload.amount:
         raise HTTPException(status_code=400, detail="Insufficient stock to dispense")
 
     try:
-        # 2. Deduct from inventory
+        # 3. Deduct from inventory
         inventory_item.current_stock -= payload.amount
 
-        # 3. Create Audit Log
+        # 4. Create audit log
         new_log = ClinicLog(
+            school_id=current_school.id,
             student_id=payload.student_id,
-            nurse_id=payload.nurse_id,
+            nurse_id=current_user.id,
             visit_type="Routine Medication",
             action_taken=f"Dispensed {payload.amount} unit(s) of {inventory_item.medication_name}",
-            medication_dispensed_id=payload.medication_id
+            medication_dispensed_id=payload.medication_id,
         )
         db.add(new_log)
 
-        # 4. Check for low stock notification (Optional: trigger email/SMS here)
+        # 5. Low stock notification hook (wire into your existing notification service here)
         if inventory_item.current_stock <= inventory_item.low_stock_threshold:
-            print(f"ALERT: Medication {inventory_item.medication_name} is running low.")
+            pass
 
-        db.commit()
+        await db.commit()
         return {"success": True, "message": "Medication logged successfully"}
-        
+
     except Exception as e:
-        db.rollback()
+        await db.rollback()
         raise HTTPException(status_code=500, detail=f"Database error: {str(e)}")
