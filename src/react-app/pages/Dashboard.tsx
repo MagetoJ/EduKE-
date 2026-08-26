@@ -14,7 +14,7 @@ import {
   Accessibility
 } from 'lucide-react'
 import { useApi, useAuth } from '../contexts/AuthContext'
-import { useNavigate, Navigate } from 'react-router-dom' // Added Navigate import
+import { useNavigate, Navigate } from 'react-router-dom' 
 
 type SchoolRecord = {
   id: string
@@ -100,9 +100,9 @@ export default function Dashboard() {
           const data = await response.json()
           setSchools(Array.isArray(data) ? data : (data.data || []))
         } else if ([
-          'admin', 'registrar', 'exam_officer', 'hod', 
+          'admin', 'registrar', 'exam_officer', 
           'transport_manager', 'boarding_master', 'cbc_coordinator', 
-          'hr_manager', 'admission_officer', 'nurse'
+          'hr_manager', 'admission_officer'
         ].includes(user.role)) {
           const [statsResponse, leaveResponse] = await Promise.all([
             apiFetch('/api/dashboard/stats'),
@@ -195,6 +195,11 @@ export default function Dashboard() {
   // REDIRECT LOGIC FOR LIBRARIAN
   if (user.role === 'librarian') {
     return <Navigate to="/dashboard/librarian" replace />
+  }
+
+  // REDIRECT LOGIC FOR NURSE
+  if (user.role === 'nurse') {
+    return <Navigate to="/dashboard/nurse" replace />
   }
 
   if (isLoading) {
@@ -509,7 +514,6 @@ export default function Dashboard() {
       case 'cbc_coordinator':
       case 'hr_manager':
       case 'admission_officer':
-      case 'nurse':
         return renderAdminDashboard()
       case 'teacher':
       case 'class_teacher':

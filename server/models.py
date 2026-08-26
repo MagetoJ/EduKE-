@@ -1,12 +1,15 @@
-from sqlalchemy import Column, Integer, String, Float, DateTime, ForeignKey, Boolean, Text, Enum as SQLEnum, Table, UniqueConstraint, Index, Date, JSON, Time
+from sqlalchemy import Column, Integer, String, Float, DateTime, ForeignKey, Boolean, Text, Enum as SQLEnum, Table, UniqueConstraint, Index, Date, JSON, Time, func
 from sqlalchemy.orm import relationship, backref
 from sqlalchemy.ext.hybrid import hybrid_property
+from sqlalchemy.dialects.postgresql import UUID, ARRAY
 from datetime import datetime, timedelta
 import enum
+import uuid
+
 from database import Base
 from models_class_teacher import ClassProgressReport, ProgressReportComment
-from sqlalchemy import Column, Integer, String, Boolean, DateTime, ForeignKey, Text, Float, Enum, func
 from models_roles import DepartmentMembership
+
 # ==================== ENUMS (Borrowed from SmartBiz) ====================
 
 class UserRole(str, enum.Enum):
@@ -143,6 +146,7 @@ class Student(Base):
     invoices = relationship("FeeInvoice", back_populates="student")
     payments = relationship("Payment", back_populates="student")
     credit_transactions = relationship("CreditTransaction", back_populates="student")
+    health_profile = relationship("StudentHealthProfile", back_populates="student", uselist=False, cascade="all, delete-orphan")
 
 # ==================== ASSET MANAGEMENT (Borrowed from SmartBiz) ====================
 class Department(Base):
@@ -266,7 +270,7 @@ class Exam(Base):
 
     id = Column(Integer, primary_key=True, index=True)
     school_id = Column(Integer, ForeignKey("schools.id"), nullable=False)
-    subject_id = Column(Integer, ForeignKey("courses.id"), nullable=False)  # despite the name, this references courses.id (see TimetableSlot for the same pattern)
+    subject_id = Column(Integer, ForeignKey("courses.id"), nullable=False)
     
     title = Column(String(100), nullable=False) # e.g., "End of Term 1"
     exam_date = Column(Date)
@@ -309,12 +313,7 @@ class TimetableSlot(Base):
     end_time = Column(String(5))   # HH:MM (24h)
     room = Column(String(50))
     grade_level = Column(String(20)) # e.g., "Grade 1"
-    # Stream/section within the grade (e.g., "East", "A"). Default "" (not
-    # nullable) for the same reason ClassSubjectAssignment.stream_section is
-    # non-nullable: Postgres treats NULL != NULL, which would silently defeat
-    # conflict checks for un-streamed grades. "" means "whole grade / no streams".
     stream_section = Column(String(20), nullable=False, default="")
-
 
     # Relationships
     school = relationship("School", back_populates="timetable_slots")
@@ -567,7 +566,6 @@ class Course(Base):
     academic_year_id = Column(Integer, ForeignKey("academic_years.id", ondelete="SET NULL"))
     
     department_id = Column(Integer, ForeignKey("academic_departments.id", ondelete="SET NULL"), nullable=True)
-    department = relationship("AcademicDepartment", back_populates="courses")
     
     name = Column(String(255), nullable=False)
     code = Column(String(50))
@@ -581,7 +579,6 @@ class Course(Base):
     learning_area_id = Column(Integer, ForeignKey("master_learning_areas.id", ondelete="RESTRICT"), nullable=True)
     grade_band_id = Column(Integer, ForeignKey("cbc_grade_bands.id", ondelete="RESTRICT"), nullable=True)
 
-    # FIX: Change target string "CbcGradeBand" to "GradeBand" to match your actual Python class name
     learning_area = relationship("LearningArea", back_populates="courses")
     grade_band = relationship("GradeBand", back_populates="courses")
 
@@ -591,6 +588,7 @@ class Course(Base):
     assignments = relationship("Assignment", back_populates="course", cascade="all, delete-orphan")
     
     progress_reports = relationship("ClassProgressReport", back_populates="course", cascade="all, delete-orphan")
+    
     @hybrid_property
     def grade_level(self):
         return self.grade
@@ -617,7 +615,6 @@ class Course(Base):
 
 SchoolCourse = Course
 
-# 2. Map StudentCourseEnrollment to database table course_enrollments
 class StudentCourseEnrollment(Base):
     __tablename__ = "course_enrollments"
 
@@ -658,9 +655,7 @@ class Assignment(Base):
     created_at = Column(DateTime, default=datetime.utcnow)
     updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
 
-    # --- ADD/RESTORE THIS RELATIONSHIP FOR REVERSE MAPPER COMPLIANCE ---
     course = relationship("Course", back_populates="assignments")
-
     school = relationship("School")
     teacher = relationship("User")
     submissions = relationship("AssignmentSubmission", back_populates="assignment", cascade="all, delete-orphan")
@@ -693,19 +688,8 @@ class AssignmentSubmission(Base):
     grader = relationship("User", foreign_keys=[graded_by])
 
 # ==================== DISCIPLINE ====================
-# Add to server/models.py
-
-
-
-
-
-# --- Register relationships on Course model in models.py ---
-# Ensure Course has relationship back-populates defined:
-# Course.progress_reports = relationship("ClassProgressReport", back_populates="course", cascade="all, delete-orphan")
 class GradeBand(Base):
     __tablename__ = "cbc_grade_bands"
-    # ... fields ...
-    courses = relationship("Course", back_populates="grade_band")
 
     id = Column(Integer, primary_key=True, index=True)
     name = Column(String(100), nullable=False, unique=True) # e.g., 'Junior School (Grade 7-9)'
@@ -715,7 +699,6 @@ class GradeBand(Base):
     learning_areas = relationship("LearningArea", back_populates="grade_band")
     courses = relationship("Course", back_populates="grade_band")
     
-    
 class ParentStudentLink(Base):
     __tablename__ = "parent_student_links"
 
@@ -724,7 +707,6 @@ class ParentStudentLink(Base):
     student_id = Column(Integer, ForeignKey("students.id", ondelete="CASCADE"), nullable=False)
     relationship_type = Column("relationship", String(50), default="Parent")
 
-    # Explicit foreign_keys string prevents class-initialization resolution errors
     parent = relationship("User", foreign_keys="[ParentStudentLink.parent_id]")
     student = relationship("Student", foreign_keys="[ParentStudentLink.student_id]")
 
@@ -740,7 +722,6 @@ class Pathway(Base):
 
     requirements = relationship("CourseRequirement", back_populates="pathway")
 
-
 class LearningArea(Base):
     """The KICD CBC-aligned subject catalog definition"""
     __tablename__ = "master_learning_areas"
@@ -753,13 +734,10 @@ class LearningArea(Base):
     curriculum_year = Column(Integer, default=2024)
     created_at = Column(DateTime, default=datetime.utcnow)
 
-    # FIX: Change target string "CbcGradeBand" to "GradeBand" to match the exact class definition
     grade_band = relationship("GradeBand", back_populates="learning_areas")
-    
     strands = relationship("Strand", back_populates="learning_area", cascade="all, delete-orphan")
     courses = relationship("Course", back_populates="learning_area")
     requirements = relationship("CourseRequirement", back_populates="learning_area")
-
 
 class Strand(Base):
     """Syllabus subdivision of a Learning Area (Main Strand)"""
@@ -774,7 +752,6 @@ class Strand(Base):
     learning_area = relationship("LearningArea", back_populates="strands")
     sub_strands = relationship("SubStrand", back_populates="strand", cascade="all, delete-orphan")
 
-
 class SubStrand(Base):
     """Syllabus subdivision of a Strand containing explicit competencies"""
     __tablename__ = "master_curriculum_sub_strands"
@@ -787,7 +764,6 @@ class SubStrand(Base):
     created_at = Column(DateTime, default=datetime.utcnow)
 
     strand = relationship("Strand", back_populates="sub_strands")
-
 
 class CourseRequirement(Base):
     """Rule engine parameters enforcing compulsory vs pool elective courses"""
@@ -804,6 +780,7 @@ class CourseRequirement(Base):
 
     pathway = relationship("Pathway", back_populates="requirements")
     learning_area = relationship("LearningArea", back_populates="requirements")
+
 class DisciplineRecord(Base):
     """Student disciplinary incidents reported by teachers"""
     __tablename__ = "discipline_records"
@@ -821,7 +798,6 @@ class DisciplineRecord(Base):
 
     student  = relationship("Student")
     reporter = relationship("User")
-
 
 # ==================== NOTIFICATIONS ====================
 
@@ -853,3 +829,52 @@ class SchoolClass(Base):
     created_at = Column(DateTime(timezone=True), server_default=func.now())
 
     school = relationship("School", back_populates="classes")
+
+# ==================== CLINIC / NURSE MANAGEMENT ====================
+
+class StudentHealthProfile(Base):
+    __tablename__ = 'student_health_profiles'
+
+    # Fixed: Uses Integer to match your existing students.id
+    student_id = Column(Integer, ForeignKey('students.id', ondelete='CASCADE'), primary_key=True)
+    blood_type = Column(String(5))
+    critical_allergies = Column(ARRAY(String), default=[])
+    chronic_conditions = Column(ARRAY(String), default=[])
+    emergency_contact_phone = Column(String(20))
+    is_immunization_compliant = Column(Boolean, default=False)
+    last_updated = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+
+    student = relationship("Student", back_populates="health_profile")
+    inventory = relationship("ClinicInventory", back_populates="health_profile")
+    logs = relationship("ClinicLog", back_populates="health_profile")
+
+class ClinicInventory(Base):
+    __tablename__ = 'clinic_inventory'
+
+    # UUID is kept here as it's a new table and prevents barcode/ID guessing
+    medication_id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    student_id = Column(Integer, ForeignKey('student_health_profiles.student_id', ondelete='CASCADE'))
+    medication_name = Column(String(100), nullable=False)
+    dosage_instructions = Column(Text)
+    current_stock = Column(Integer, default=0)
+    expiration_date = Column(Date)
+    low_stock_threshold = Column(Integer, default=5)
+
+    health_profile = relationship("StudentHealthProfile", back_populates="inventory")
+
+class ClinicLog(Base):
+    __tablename__ = 'clinic_logs'
+
+    log_id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    student_id = Column(Integer, ForeignKey('student_health_profiles.student_id', ondelete='CASCADE'))
+    
+    # Fixed: Now maps to the logged-in nurse's user ID
+    nurse_id = Column(Integer, ForeignKey('users.id', ondelete='SET NULL')) 
+    
+    visit_type = Column(String(50)) # 'Routine Medication', 'Emergency', 'First Aid'
+    action_taken = Column(Text)
+    medication_dispensed_id = Column(UUID(as_uuid=True), ForeignKey('clinic_inventory.medication_id', ondelete='SET NULL'), nullable=True)
+    timestamp = Column(DateTime, default=datetime.utcnow)
+
+    health_profile = relationship("StudentHealthProfile", back_populates="logs")
+    nurse = relationship("User") # Relates directly to your unified User model

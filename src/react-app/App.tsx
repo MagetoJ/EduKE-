@@ -45,6 +45,7 @@ import HodDashboard from "@/pages/HodDashboard";
 import LibrarianDashboard from "@/pages/LibrarianDashboard";
 import Departments from "@/pages/Departments";
 import Library from "@/pages/Library";
+import NurseDashboard from "@/pages/NurseDashboard";
 // Explicit props typing to eliminate the compilation assignment error
 interface ProtectedRouteProps {
   children: React.ReactNode;
@@ -149,7 +150,16 @@ function AppRoutes() {
             </ProtectedRoute>
           }
         />
-
+      
+      {/* Core Nurse App Route Setup */}
+        <Route
+          path="nurse"
+          element={
+            <ProtectedRoute allowedRoles={['nurse']}>
+              <NurseDashboard />
+            </ProtectedRoute>
+          }
+        />
         {/* Remaining Core Functional Architecture Sub-Routes */}
         <Route path="timetable-manager" element={<TimetableManagerDashboard />} />
         <Route path="library" element={<Library />} />
