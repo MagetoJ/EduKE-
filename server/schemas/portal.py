@@ -9,6 +9,9 @@ class AttendanceSummarySchema(BaseModel):
     late_days: int
     percentage: float
 
+    class Config:
+        from_attributes = True
+
 class GradeEntrySchema(BaseModel):
     id: int
     subject_id: int
@@ -16,14 +19,22 @@ class GradeEntrySchema(BaseModel):
     max_score: float
     exam_type: str
 
+    class Config:
+        from_attributes = True
+
 class TeacherRemarkSchema(BaseModel):
     id: int
     term: int
     year: int
     remarks: str
 
+    class Config:
+        from_attributes = True
+
 class FeeSummarySchema(BaseModel):
     total_billed: float
     total_paid: float
     balance: float
     
+    class Config:
+        from_attributes = True

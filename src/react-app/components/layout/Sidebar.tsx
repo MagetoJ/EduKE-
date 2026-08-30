@@ -2,6 +2,7 @@ import { Link, useLocation } from 'react-router-dom'
 import { 
   LayoutDashboard, 
   Users, 
+  UserPlus, // Added for Registrar
   GraduationCap, 
   BookOpen, 
   Calendar, 
@@ -78,6 +79,12 @@ const navGroups: NavGroup[] = [
   {
     category: 'Operations',
     items: [
+      {
+        title: 'Registrar Office',
+        href: '/dashboard/registrar',
+        icon: UserPlus,
+        roles: ['super_admin', 'admin', 'registrar']
+      },
       {
         title: 'Students',
         href: '/dashboard/students',

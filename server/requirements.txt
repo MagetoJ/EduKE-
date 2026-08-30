@@ -16,3 +16,4 @@ greenlet
 alembic>=1.13.0
 pandas
 httpx
+msal==1.28.0

@@ -1,77 +1,149 @@
-import { Card, CardContent, CardHeader, CardTitle } from '../components/ui/card';
-import { FinancialSummaryChart } from '../components/charts/FinancialSummaryChart';
-import { StudentPerformanceChart } from '../components/charts/StudentPerformanceChart';
-import { SchoolAnalyticsChart } from '../components/charts/SchoolAnalyticsChart';
-import { SubscriptionStatusChart } from '../components/charts/SubscriptionStatusChart';
-import { useAuth } from '../contexts/AuthContext';
+import { useState, useEffect } from 'react';
+import { Tabs, TabsList, TabsTrigger, TabsContent } from '../components/ui/tabs';
+import { PowerBIEmbedCard } from '../components/PowerBIEmbedCard';
+import { useAuth } from '../contexts/AuthContext'; // <-- Imported AuthContext
 
-export function Reports() {
-  const { user, isLoading } = useAuth();
+// 1. Define the Types
+interface KPI {
+  label: string;
+  value: string | number;
+  trend: string;
+  status: 'positive' | 'negative';
+}
 
-  const isSuperAdmin = user?.role === 'super_admin';
-  const isAdmin = user?.role === 'admin';
-  const isTeacher = user?.role === 'teacher';
+interface TableRow {
+  subject: string;
+  strand?: string;
+  formative_mean?: string;
+  summative_mean?: string;
+  teacher?: string;
+  mean?: number | string;
+  completion?: string;
+}
 
-  const canViewFinancial = isSuperAdmin || isAdmin;
-  const canViewPerformance = isSuperAdmin || isAdmin || isTeacher;
-  const canViewAnyReport = canViewFinancial || canViewPerformance;
+interface ReportData {
+  kpis: KPI[];
+  chart_data: Record<string, any>[];
+  table_data: TableRow[];
+}
 
-  if (isLoading) {
-    return (
-      <div className="space-y-6">
-        <div>
-          <h1 className="text-3xl font-bold text-gray-900">Reports</h1>
-          <p className="text-gray-600">Loading...</p>
-        </div>
-        <div className="grid gap-6 animate-pulse">
-          <Card>
-            <CardHeader>
-              <div className="h-6 bg-gray-200 rounded w-1/4"></div>
-            </CardHeader>
-            <CardContent>
-              <div className="space-y-2">
-                <div className="h-4 bg-gray-200 rounded"></div>
-                <div className="h-4 bg-gray-200 rounded w-5/6"></div>
-              </div>
-            </CardContent>
-          </Card>
-        </div>
-      </div>
-    );
+interface TabOption {
+  id: string;
+  label: string;
+}
+
+// 2. Define the Role-to-Tab Mapping
+const getTabsForRole = (role: string): TabOption[] => {
+  const allTabs = {
+    academic: { id: 'academic', label: 'Academics' },
+    financial: { id: 'financial', label: 'Financials' },
+    attendance: { id: 'attendance', label: 'Attendance' },
+    cbc: { id: 'cbc', label: 'CBC Compliance' },
+    operations: { id: 'operations', label: 'Operations' }
+  };
+
+  const roleMap: Record<string, TabOption[]> = {
+    super_admin: [allTabs.academic, allTabs.financial, allTabs.attendance, allTabs.cbc, allTabs.operations],
+    admin: [allTabs.academic, allTabs.financial, allTabs.attendance, allTabs.cbc, allTabs.operations],
+    hod: [allTabs.academic, allTabs.attendance, allTabs.cbc],
+    class_teacher: [allTabs.academic, allTabs.attendance, allTabs.cbc],
+    nurse: [allTabs.operations],
+    librarian: [allTabs.operations],
+  };
+
+  return roleMap[role] || roleMap['super_admin'];
+};
+
+// 3. Removed props, getting user from context instead
+export const Reports = () => {
+  const { user } = useAuth(); // <-- Get user directly from context
+  const userRole = user?.role || 'student'; // Fallback if user is null
+
+  const availableTabs = getTabsForRole(userRole);
+  
+  const [activeTab, setActiveTab] = useState<string>(
+    availableTabs.length > 0 ? availableTabs[0].id : 'cbc'
+  );
+  
+  const [data, setData] = useState<ReportData | null>(null);
+
+  useEffect(() => {
+    if (!activeTab) return;
+
+    fetch(`/api/reports/${activeTab}/summary`)
+      .then(res => res.json())
+      .then((fetchedData: ReportData) => setData(fetchedData))
+      .catch(err => console.error("Failed to load report data:", err));
+  }, [activeTab]);
+
+  if (availableTabs.length === 0) {
+    return <div className="p-6">You do not have access to any reporting modules.</div>;
   }
 
   return (
-    <div className="space-y-6">
-      <div>
-        <h1 className="text-3xl font-bold text-gray-900">Reports</h1>
-        <p className="text-gray-600">
-          {isSuperAdmin ? 'System-wide analytics and subscription insights' : 'Analytics and insights for your school'}
-        </p>
-      </div>
+    <div className="p-6">
+      <h1 className="text-2xl font-bold mb-4">School Reporting</h1>
+      
+      <Tabs value={activeTab} onValueChange={setActiveTab}>
+        <TabsList className="mb-6">
+          {availableTabs.map((tab: TabOption) => (
+            <TabsTrigger key={tab.id} value={tab.id}>{tab.label}</TabsTrigger>
+          ))}
+        </TabsList>
 
-      <div className="grid gap-6">
-        {isSuperAdmin && (
-          <>
-            <SchoolAnalyticsChart />
-            <SubscriptionStatusChart />
-          </>
-        )}
+        <TabsContent value={activeTab}>
+          {/* KPI Strip */}
+          <div className="grid grid-cols-4 gap-4 mb-6">
+            {data?.kpis?.map((kpi: KPI, idx: number) => (
+              <div key={idx} className="p-4 border rounded shadow-sm bg-white">
+                <p className="text-sm text-gray-500">{kpi.label}</p>
+                <p className="text-2xl font-bold">{kpi.value}</p>
+                <span className={`text-sm ${kpi.status === 'positive' ? 'text-green-600' : 'text-red-600'}`}>
+                  {kpi.trend}
+                </span>
+              </div>
+            ))}
+          </div>
 
-        {canViewFinancial && <FinancialSummaryChart />}
-
-        {canViewPerformance && <StudentPerformanceChart />}
-
-        {!canViewAnyReport && (
-          <Card>
-            <CardHeader>
-              <CardTitle>Access Restricted</CardTitle>
-            </CardHeader>
-            <CardContent>
-              <p>You don't have permission to view reports. Financial and performance reports are available to administrators, teachers, and system administrators.</p>
-            </CardContent>
-          </Card>
-        )}
-      </div>
+          {/* Conditional Rendering: Native generic view vs PowerBI */}
+          {activeTab === 'financial' ? (
+             <PowerBIEmbedCard />
+          ) : (
+             <div className="border p-4 rounded shadow-sm bg-white">
+               <h3 className="font-semibold mb-4">Detailed Breakdown</h3>
+               <div className="overflow-x-auto">
+                 <table className="w-full text-left border-collapse">
+                   <thead>
+                     <tr className="border-b bg-gray-50">
+                       <th className="p-3">Subject</th>
+                       <th className="p-3">Strand / Details</th>
+                       <th className="p-3">Formative</th>
+                       <th className="p-3">Summative</th>
+                     </tr>
+                   </thead>
+                   <tbody>
+                     {data?.table_data?.map((row: TableRow, i: number) => (
+                       <tr key={i} className="border-b hover:bg-gray-50">
+                         <td className="p-3">{row.subject}</td>
+                         <td className="p-3">{row.strand || row.teacher || '-'}</td>
+                         <td className="p-3">{row.formative_mean || row.completion || '-'}</td>
+                         <td className="p-3">{row.summative_mean || row.mean || '-'}</td>
+                       </tr>
+                     ))}
+                     {(!data?.table_data || data.table_data.length === 0) && (
+                       <tr>
+                         <td colSpan={4} className="p-4 text-center text-gray-500">
+                           No detailed data available for this term.
+                         </td>
+                       </tr>
+                     )}
+                   </tbody>
+                 </table>
+               </div>
+             </div>
+          )}
+        </TabsContent>
+      </Tabs>
     </div>
   );
-}
+};

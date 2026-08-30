@@ -44,6 +44,12 @@ importers:
       pg:
         specifier: ^8.16.3
         version: 8.22.0
+      powerbi-client:
+        specifier: ^2.24.1
+        version: 2.24.1
+      powerbi-client-react:
+        specifier: ^2.0.2
+        version: 2.0.2(react@19.0.0)
       react:
         specifier: 19.0.0
         version: 19.0.0
@@ -2205,6 +2211,9 @@ packages:
   es-toolkit@1.49.0:
     resolution: {integrity: sha512-G5iZ6Pc/FNRY/soKZHC+TxGDD83rHUDXxzaWhGCX44vAv/tMs56WMusnm/KMNK+luUPsgA9U28cGr4RDlSzL2g==}
 
+  es6-promise@3.3.1:
+    resolution: {integrity: sha512-SOp9Phqvqn7jtEUxPWdWfWoLmyt2VaJ6MpvP9Comy1MceMXqE6bxvaTu4iaxpYYPzhny28Lc+M87/c2cPK6lDg==}
+
   esbuild@0.28.1:
     resolution: {integrity: sha512-HrJrvZv5ayxBzPfwphOoNzkzOIIlifzk0KJrGK2c8R4+LKpMtpYLQeUdjnwjWv/LZlkH2laZk+4w78pi99D4Vw==}
     engines: {node: '>=18'}
@@ -2455,6 +2464,9 @@ packages:
     resolution: {integrity: sha512-zJIHFrl6bq3RDd2YusFNCDlM8qUprxKswyi/OPzPyzKDdyBXDqWx8bZlZ7R+saTdSTatUmb3O7K4SspGPaEOQg==}
     engines: {node: '>=16.9.0'}
 
+  http-post-message@0.3.0:
+    resolution: {integrity: sha512-tfn1ca5RcRKdejbFanY2ydN4pXB+youdgtNz1GSKtWvzbaf63sGQWyRjo5bnqlebTjG85wY0GUADDD0tAVpmkQ==}
+
   idb@7.1.1:
     resolution: {integrity: sha512-gchesWBzyvGHRO9W8tzUWFDycow5gwjvFKfyV9FF32Y7F50yZMp7mP+T2mJIWFx49zicqyC4uefHM17o6xKIVQ==}
 
@@ -2687,6 +2699,10 @@ packages:
 
   lodash.debounce@4.0.8:
     resolution: {integrity: sha512-FT1yDzDYEoYWhnSGnpE/4Kj1fLZkDFyqRb7fNt6FdYOSxlUWAtp42Eh6Wb0rGIv/m9Bgo7x4GhQbm5Ys4SG5ow==}
+
+  lodash.isequal@4.5.0:
+    resolution: {integrity: sha512-pDo3lu8Jhfjqls6GkMgpahsF9kCyayhgykjyLMNFTKWrpVdAQtYyB4muAMWozBB4ig/dtWAmsMxLEI8wuz+DYQ==}
+    deprecated: This package is deprecated. Use require('node:util').isDeepStrictEqual instead.
 
   lodash.merge@4.6.2:
     resolution: {integrity: sha512-0KpjqXRVvrYyCsX1swR/XTK0va6VQkQM6MNo7PqW77ByjAhoARA8EfrP1N4+KlKj8YS0ZUCtRT/YUuhyYDujIQ==}
@@ -2948,6 +2964,20 @@ packages:
     resolution: {integrity: sha512-9ZhXKM/rw350N1ovuWHbGxnGh/SNJ4cnxHiM0rxE4VN41wsg8P8zWn9hv/buK00RP4WvlOyr/RBDiptyxVbkZQ==}
     engines: {node: '>=0.10.0'}
 
+  powerbi-client-react@2.0.2:
+    resolution: {integrity: sha512-NXn2gAQlktKQTyMeOkH8dEUUN79MTiyq6HKWG72WyayDcvcIb9mTFtlYK9CyD8efUeWa4QsiYMOg2xrkAFd4JQ==}
+    peerDependencies:
+      react: '>= 18'
+
+  powerbi-client@2.24.1:
+    resolution: {integrity: sha512-NhiDBzEv4z8zIHiTLBfRzTxU9LskV7QDdp+vU2TJE3q2Zn3OC4GKbCCa7QvhJ8oKOmmQGNw7jxTfoNvogeOM5g==}
+
+  powerbi-models@2.1.1:
+    resolution: {integrity: sha512-fF+ck7NblejxQp3z4Y5cgYSTo8sghUyBodvPRn8eqOifavp4FNb9TC7q59sXKEvCWhpGsYuNAiHPwmcqGXL+hw==}
+
+  powerbi-router@0.1.5:
+    resolution: {integrity: sha512-DFJCKxwh/DqMZXtHSo6xZl87mbRviZGn4P7Oi2rT0L4HMI4AjnWIrwg0JCSM7ymBzYnNe5UmrsCaf2Upur5RQA==}
+
   prelude-ls@1.2.1:
     resolution: {integrity: sha512-vkcDPrRZo1QZLbn5RLGPpg/WmIQ65qoWWhcGKf/b5eplkkarX0m9z8ppCat4mlOqUsWpyNuYgO3VRyrYHSzX5g==}
     engines: {node: '>= 0.8.0'}
@@ -3115,6 +3145,9 @@ packages:
     resolution: {integrity: sha512-RFnrW4lhXA3s3eqHDZvN654g8OTjzRfqpIRJYczCGB6HzphckVAi/Qh4tbPUbRuDi7s1Llv8g/NspLkttY3gTA==}
     engines: {node: '>=18.0.0', npm: '>=8.0.0'}
     hasBin: true
+
+  route-recognizer@0.1.11:
+    resolution: {integrity: sha512-7JNu5mXQVa39zxmUKyk/bfpeF2WyEC5JKVTJO5HATcoUQpcQsI3eLzhwGU69xeOagQxfOQ+yr2sSv0G8xy+vQA==}
 
   run-parallel@1.2.0:
     resolution: {integrity: sha512-5l4VyZR86LZ/lDxZTR6jqL8AFE2S0IFLMP26AbjsLVADxHdhB/c0GUsH+y39UfCi3dzz8OlQuPmnaJOMoDHQBA==}
@@ -3512,6 +3545,9 @@ packages:
     resolution: {integrity: sha512-BLI3Tl1TW3Pvl70l3yq3Y64i+awpwXqsGBYWkkqMtnbXgrMD+yj7rhW0kuEDxzJaYXGjEW5ogapKNMEKNMjibA==}
     engines: {node: '>= 8'}
     hasBin: true
+
+  window-post-message-proxy@0.3.0:
+    resolution: {integrity: sha512-dEpItkLX97djHvWzcbVmyelEPoq2Oglx2y5EYt+mCC0bwKvwbtE3ro3Zsg9heHAUir/3dHUBtV2Rr8DQQjwyPg==}
 
   word-wrap@1.2.5:
     resolution: {integrity: sha512-BN22B5eaMMI9UMtjrGd5g5eCYPpCPDUy0FJXbYsaT5zYxjFOckS53SQDE3pWkVoWpHXVb3BrYcEN4Twa55B5cA==}
@@ -5717,6 +5753,8 @@ snapshots:
 
   es-toolkit@1.49.0: {}
 
+  es6-promise@3.3.1: {}
+
   esbuild@0.28.1:
     optionalDependencies:
       '@esbuild/aix-ppc64': 0.28.1
@@ -6005,6 +6043,10 @@ snapshots:
 
   hono@4.12.31: {}
 
+  http-post-message@0.3.0:
+    dependencies:
+      es6-promise: 3.3.1
+
   idb@7.1.1: {}
 
   ignore@5.3.2: {}
@@ -6214,6 +6256,8 @@ snapshots:
       p-locate: 5.0.0
 
   lodash.debounce@4.0.8: {}
+
+  lodash.isequal@4.5.0: {}
 
   lodash.merge@4.6.2: {}
 
@@ -6441,6 +6485,26 @@ snapshots:
     dependencies:
       xtend: 4.0.2
 
+  powerbi-client-react@2.0.2(react@19.0.0):
+    dependencies:
+      lodash.isequal: 4.5.0
+      powerbi-client: 2.24.1
+      react: 19.0.0
+
+  powerbi-client@2.24.1:
+    dependencies:
+      http-post-message: 0.3.0
+      powerbi-models: 2.1.1
+      powerbi-router: 0.1.5
+      window-post-message-proxy: 0.3.0
+
+  powerbi-models@2.1.1: {}
+
+  powerbi-router@0.1.5:
+    dependencies:
+      es6-promise: 3.3.1
+      route-recognizer: 0.1.11
+
   prelude-ls@1.2.1: {}
 
   pretty-bytes@5.6.0: {}
@@ -6632,6 +6696,8 @@ snapshots:
       '@rollup/rollup-win32-x64-gnu': 4.62.2
       '@rollup/rollup-win32-x64-msvc': 4.62.2
       fsevents: 2.3.3
+
+  route-recognizer@0.1.11: {}
 
   run-parallel@1.2.0:
     dependencies:
@@ -7122,6 +7188,10 @@ snapshots:
   which@2.0.2:
     dependencies:
       isexe: 2.0.0
+
+  window-post-message-proxy@0.3.0:
+    dependencies:
+      es6-promise: 3.3.1
 
   word-wrap@1.2.5: {}
 

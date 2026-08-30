@@ -2,28 +2,52 @@ from fastapi import APIRouter, Depends, HTTPException, status
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select, delete
 from typing import List, Optional, Dict
-from pydantic import BaseModel
+from datetime import date
+from pydantic import BaseModel, ConfigDict
 
 from database import get_db
-# NOTE: CourseRequirement, SchoolCourse, Pathway, and StudentCourseEnrollment
-# do not exist in models.py yet. They need to be added (per the CBC curriculum
-# roadmap) before this endpoint will run. Everything else below matches the
-# existing async/tenant-scoped conventions already used in this file.
 from models import Student, School, CourseRequirement, SchoolCourse, Pathway, StudentCourseEnrollment
 from auth import get_current_school, require_roles
 
 router = APIRouter(prefix="/students", tags=["Students"])
 
-# --- Updated Schemas to accommodate full enrollment data ---
+# --- Updated Schemas for Full Registrar Biodata ---
 class StudentCreate(BaseModel):
     first_name: str
     last_name: str
     grade: str
+    gender: Optional[str] = "male"
+    dob: Optional[date] = None
+    upi_number: Optional[str] = None  # NEMIS UPI Number
+    nationality: Optional[str] = "Kenyan"
+    religion: Optional[str] = None
+    previous_school: Optional[str] = None
     email: Optional[str] = None
     phone: Optional[str] = None
-    gender: Optional[str] = "male"
     address: Optional[str] = None
     admission_number: Optional[str] = None
+    guardian_name: Optional[str] = None
+    guardian_phone: Optional[str] = None
+    guardian_relation: Optional[str] = "Parent"
+
+class StudentUpdate(BaseModel):
+    first_name: Optional[str] = None
+    last_name: Optional[str] = None
+    grade: Optional[str] = None
+    gender: Optional[str] = None
+    dob: Optional[date] = None
+    upi_number: Optional[str] = None
+    nationality: Optional[str] = None
+    religion: Optional[str] = None
+    previous_school: Optional[str] = None
+    email: Optional[str] = None
+    phone: Optional[str] = None
+    address: Optional[str] = None
+
+class StudentStatusUpdate(BaseModel):
+    status: str  # Active, Transferred, Graduated, Suspended, Withdrawn
+    status_reason: Optional[str] = None
+    status_date: Optional[date] = None
 
 class StudentResponse(BaseModel):
     id: int
@@ -31,13 +55,17 @@ class StudentResponse(BaseModel):
     first_name: str
     last_name: str
     grade: str
-    current_balance: float
-    status: str = "active"
+    current_balance: float = 0.0
+    status: str = "Active"
+    status_reason: Optional[str] = None
+    gender: Optional[str] = None
+    dob: Optional[date] = None
+    upi_number: Optional[str] = None
+    admission_number: Optional[str] = None
     email: Optional[str] = None
     phone: Optional[str] = None
 
-    class Config:
-        from_attributes = True
+    model_config = ConfigDict(from_attributes=True)
 
 # --- Unified Response Envelopes ---
 class StudentListEnvelope(BaseModel):
@@ -48,15 +76,20 @@ class StudentSingleEnvelope(BaseModel):
     success: bool
     data: StudentResponse
 
+class GenericMessageEnvelope(BaseModel):
+    success: bool
+    message: str
+
 # --- Routes ---
 
 @router.get("", response_model=StudentListEnvelope)
 @router.get("/", response_model=StudentListEnvelope)
 async def get_students(
     db: AsyncSession = Depends(get_db),
-    current_school: School = Depends(get_current_school)
+    current_school: School = Depends(get_current_school),
+    current_user = Depends(require_roles("admin", "registrar", "teacher", "exam_officer", "hod"))
 ):
-    """List students wrapped inside a response envelope matching frontend expectations"""
+    """List students scoped to active multi-tenant school node"""
     result = await db.execute(
         select(Student).where(Student.school_id == current_school.id)
     )
@@ -68,20 +101,26 @@ async def get_students(
 async def create_student(
     student_data: StudentCreate,
     db: AsyncSession = Depends(get_db),
-    current_school: School = Depends(get_current_school)
+    current_school: School = Depends(get_current_school),
+    current_user = Depends(require_roles("admin", "registrar"))
 ):
-    """Add a student record securely assigned to the active multi-tenant node"""
-    # Filter keys dynamically depending on what your SQLAlchemy columns support
+    """Admit a student record securely assigned to the active multi-tenant node"""
     insert_kwargs = {
         "first_name": student_data.first_name,
         "last_name": student_data.last_name,
         "grade": student_data.grade,
-        "school_id": current_school.id
+        "school_id": current_school.id,
+        "status": "Active"
     }
 
-    # Optional safeguards for alternative model structures
-    for field in ["email", "phone", "gender", "address", "admission_number"]:
-        if hasattr(Student, field):
+    # Dynamically bind supported attributes
+    supported_fields = [
+        "email", "phone", "gender", "dob", "address", 
+        "admission_number", "upi_number", "nationality", 
+        "religion", "previous_school"
+    ]
+    for field in supported_fields:
+        if hasattr(Student, field) and getattr(student_data, field) is not None:
             insert_kwargs[field] = getattr(student_data, field)
 
     new_student = Student(**insert_kwargs)
@@ -91,24 +130,75 @@ async def create_student(
 
     return {"success": True, "data": new_student}
 
+@router.put("/{student_id}", response_model=StudentSingleEnvelope)
+async def update_student(
+    student_id: int,
+    student_data: StudentUpdate,
+    db: AsyncSession = Depends(get_db),
+    current_school: School = Depends(get_current_school),
+    current_user = Depends(require_roles("admin", "registrar"))
+):
+    """Update student record details within active tenant node"""
+    result = await db.execute(
+        select(Student).where(
+            Student.id == student_id,
+            Student.school_id == current_school.id
+        )
+    )
+    student = result.scalar_one_or_none()
+    if not student:
+        raise HTTPException(status_code=404, detail="Student record not found")
+
+    for key, value in student_data.model_dump(exclude_unset=True).items():
+        if hasattr(student, key):
+            setattr(student, key, value)
+
+    await db.commit()
+    await db.refresh(student)
+
+    return {"success": True, "data": student}
+
+@router.put("/{student_id}/status", response_model=StudentSingleEnvelope)
+async def update_student_status(
+    student_id: int,
+    status_payload: StudentStatusUpdate,
+    db: AsyncSession = Depends(get_db),
+    current_school: School = Depends(get_current_school),
+    current_user = Depends(require_roles("admin", "registrar"))
+):
+    """Process student status changes (transfers, withdrawals, graduations)"""
+    result = await db.execute(
+        select(Student).where(
+            Student.id == student_id,
+            Student.school_id == current_school.id
+        )
+    )
+    student = result.scalar_one_or_none()
+    if not student:
+        raise HTTPException(status_code=404, detail="Student record not found")
+
+    student.status = status_payload.status
+    if hasattr(student, "status_reason"):
+        student.status_reason = status_payload.status_reason
+    if hasattr(student, "status_date"):
+        student.status_date = status_payload.status_date or date.today()
+
+    await db.commit()
+    await db.refresh(student)
+
+    return {"success": True, "data": student}
 
 # --- Senior Secondary Pathway Transition (CBC Grade 9 -> Grade 10) ---
 
-# TODO: replace this magic number with a lookup once a GradeBand table exists
-# (e.g. select(GradeBand).where(GradeBand.name == "Senior Secondary")), so the
-# grade-band id isn't hardcoded here.
 SENIOR_SECONDARY_GRADE_BAND_ID = 2
-
 
 class PathwaySelectionPayload(BaseModel):
     pathway_id: int
-    elective_course_ids: List[int]  # SchoolCourse IDs the student is choosing as electives
-
+    elective_course_ids: List[int]
 
 class PathwayTransitionEnvelope(BaseModel):
     success: bool
     message: str
-
 
 @router.post("/{student_id}/pathway-transition", response_model=PathwayTransitionEnvelope)
 async def transition_student_to_senior_pathway(
@@ -116,18 +206,13 @@ async def transition_student_to_senior_pathway(
     payload: PathwaySelectionPayload,
     db: AsyncSession = Depends(get_db),
     current_school: School = Depends(get_current_school),
-    current_user=Depends(require_roles("admin", "registrar")),
+    current_user = Depends(require_roles("admin", "registrar")),
 ):
     """
     Transitions a Grade 9 student into a Senior Secondary pathway (Grade 10),
     auto-enrolling compulsory subjects and validating elective-pool selections
     against CourseRequirement rules for the chosen pathway.
-
-    Requires admin or registrar role -- adjust the require_roles(...) call if
-    a different role (e.g. "exam_officer") should own this action instead.
     """
-
-    # 1. Fetch the student, scoped to this tenant -- never trust student_id alone
     result = await db.execute(
         select(Student).where(
             Student.id == student_id,
@@ -138,7 +223,6 @@ async def transition_student_to_senior_pathway(
     if not student:
         raise HTTPException(status_code=404, detail="Student record not found")
 
-    # 2. Validate the requested pathway actually exists
     pathway_result = await db.execute(
         select(Pathway).where(Pathway.id == payload.pathway_id)
     )
@@ -146,8 +230,6 @@ async def transition_student_to_senior_pathway(
     if not pathway:
         raise HTTPException(status_code=400, detail="Selected pathway does not exist")
 
-    # 3. Pull every rule for Senior Secondary: compulsory core (pathway_id is
-    #    NULL) plus rules specific to the chosen pathway
     rules_result = await db.execute(
         select(CourseRequirement).where(
             CourseRequirement.grade_band_id == SENIOR_SECONDARY_GRADE_BAND_ID,
@@ -160,7 +242,6 @@ async def transition_student_to_senior_pathway(
     compulsory_areas = [r.learning_area_id for r in rules if r.requirement_type == "compulsory"]
     elective_rules = {r.learning_area_id: r for r in rules if r.requirement_type == "elective_pool"}
 
-    # 4. Resolve compulsory course offerings actually active at this school
     compulsory_result = await db.execute(
         select(SchoolCourse).where(
             SchoolCourse.school_id == current_school.id,
@@ -170,7 +251,6 @@ async def transition_student_to_senior_pathway(
     )
     compulsory_courses = compulsory_result.scalars().all()
 
-    # 5. Resolve the student's chosen electives, scoped to this tenant
     elective_result = await db.execute(
         select(SchoolCourse).where(
             SchoolCourse.id.in_(payload.elective_course_ids),
@@ -179,8 +259,6 @@ async def transition_student_to_senior_pathway(
     )
     selected_electives = elective_result.scalars().all()
 
-    # 6. Validate each chosen elective is actually approved for this pathway,
-    #    and tally selections per elective pool
     pool_counts: Dict[str, int] = {}
     for sc in selected_electives:
         rule = elective_rules.get(sc.master_learning_area_id)
@@ -192,7 +270,6 @@ async def transition_student_to_senior_pathway(
         if rule.pool_group_name:
             pool_counts[rule.pool_group_name] = pool_counts.get(rule.pool_group_name, 0) + 1
 
-    # 7. Enforce minimum-per-pool rules (e.g. "at least 2 from the Sciences pool")
     for rule in rules:
         if rule.requirement_type == "elective_pool" and rule.pool_group_name:
             count = pool_counts.get(rule.pool_group_name, 0)
@@ -205,9 +282,6 @@ async def transition_student_to_senior_pathway(
                     ),
                 )
 
-    # 8. Update the student's grade band and persist enrollments.
-    # Clear any prior Senior Secondary enrollments first so this endpoint is
-    # safe to call again (e.g. if the student changes their elective choices).
     student.grade = "Grade 10"
 
     await db.execute(

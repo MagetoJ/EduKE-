@@ -72,6 +72,9 @@ from router.teacher_dashboard import router as teacher_dashboard_router
 from lesson_plans import router as lesson_plans_router
 from messaging import router as messaging_router
 from router import clinic
+from reports.router import reporting_router
+from powerbi_service import router as powerbi_router
+from registrar import router as registrar_router
 import parents
 import portal_api
 
@@ -155,6 +158,9 @@ app.include_router(portal_api.router)
 app.include_router(clinic.router)
 app.include_router(teacher_dashboard_router, dependencies=[Depends(get_current_user)])
 app.include_router(timetable_manager_router)
+app.include_router(reporting_router)
+app.include_router(powerbi_router)
+app.include_router(registrar_router)
 app.include_router(
     timetable_manager_router,
     dependencies=[Depends(get_current_user)]
