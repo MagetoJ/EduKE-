@@ -9,7 +9,6 @@ import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, 
 import { useApi, useAuth } from '../contexts/AuthContext'
 import { Home, Users, AlertTriangle, Plus, Edit2, Trash2, Search } from 'lucide-react'
 
-// Updated to match the backend DormSchema
 type Dormitory = {
   id: number
   name: string
@@ -48,8 +47,8 @@ export default function Boarding() {
   const { user } = useAuth()
   const apiFetch = useApi()
   const [dorms, setDorms] = useState<Dormitory[]>([])
-  const [enrollments, setEnrollments] = useState<BoardingEnrollment[]>([])
-  const [violations, setViolations] = useState<BoardingViolation[]>([])
+  const [_enrollments, setEnrollments] = useState<BoardingEnrollment[]>([])
+  const [_violations, setViolations] = useState<BoardingViolation[]>([])
   const [isLoading, setIsLoading] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const [searchTerm, setSearchTerm] = useState('')
@@ -65,7 +64,6 @@ export default function Boarding() {
     setIsLoading(true)
     setError(null)
     try {
-      // We gracefully catch errors on enrollments/violations in case the endpoints aren't built yet
       const dormsRes = await apiFetch('/api/boarding/dorms')
       if (!dormsRes.ok) throw new Error('Failed to load boarding data')
       const dormsData = await dormsRes.json()
@@ -82,7 +80,6 @@ export default function Boarding() {
         if (violationsRes.ok) violationsData = await violationsRes.json();
       } catch (e) {}
 
-      // Handle both { data: [...] } and raw [...] array responses
       setDorms(dormsData.data || dormsData || [])
       setEnrollments(enrollmentsData.data || enrollmentsData || [])
       setViolations(violationsData.data || violationsData || [])
@@ -286,7 +283,6 @@ export default function Boarding() {
         </TabsContent>
 
         <TabsContent value="enrollments" className="space-y-4">
-           {/* UI matches original layout, relying on placeholder data handling */}
            <Card>
              <CardContent className="pt-6 text-center text-gray-500">
                <Users className="w-12 h-12 mx-auto mb-2 text-gray-300" />

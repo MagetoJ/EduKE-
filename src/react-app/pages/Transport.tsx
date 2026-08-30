@@ -9,7 +9,6 @@ import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, 
 import { useApi, useAuth } from '../contexts/AuthContext'
 import { Bus, User, MapPin, DollarSign, Plus, Edit2, Trash2, Search } from 'lucide-react'
 
-// Updated to match backend RouteSchema
 type TransportRoute = {
   id: number
   route_name: string
@@ -36,13 +35,12 @@ export default function Transport() {
   const { user } = useAuth()
   const apiFetch = useApi()
   const [routes, setRoutes] = useState<TransportRoute[]>([])
-  const [enrollments, setEnrollments] = useState<TransportEnrollment[]>([])
+  const [_enrollments, setEnrollments] = useState<TransportEnrollment[]>([])
   const [isLoading, setIsLoading] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const [searchTerm, setSearchTerm] = useState('')
   const [showRouteDialog, setShowRouteDialog] = useState(false)
   
-  // Updated Form Data to match backend
   const [formData, setFormData] = useState({
     route_name: '',
     driver_name: '',
@@ -65,7 +63,6 @@ export default function Transport() {
         if (enrollmentsRes.ok) enrollmentsData = await enrollmentsRes.json();
       } catch (e) {}
 
-      // Handle both { data: [...] } and raw [...] array responses
       setRoutes(routesData.data || routesData || [])
       setEnrollments(enrollmentsData.data || enrollmentsData || [])
     } catch (err) {
@@ -272,7 +269,6 @@ export default function Transport() {
         </TabsContent>
 
         <TabsContent value="enrollments" className="space-y-4">
-           {/* UI matches original layout, relying on placeholder data handling */}
            <Card>
              <CardContent className="pt-6 text-center text-gray-500">
                <Bus className="w-12 h-12 mx-auto mb-2 text-gray-300" />

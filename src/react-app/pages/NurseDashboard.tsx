@@ -1,6 +1,4 @@
-// src/react-app/pages/NurseDashboard.tsx
-
-import React, { useState, useEffect, useCallback } from 'react';
+import { useState, useEffect, useCallback } from 'react';
 import { Card, CardHeader, CardTitle, CardContent } from '../components/ui/card';
 import { Button } from '../components/ui/button';
 import { Input } from '../components/ui/input';
@@ -16,7 +14,6 @@ export default function NurseDashboard() {
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
 
-  // Fetch initial dashboard stats on mount
   const loadStats = useCallback(async () => {
     try {
       setIsLoading(true);
@@ -34,7 +31,6 @@ export default function NurseDashboard() {
     loadStats();
   }, [loadStats]);
 
-  // Handle student search
   const handleSearch = async () => {
     if (!searchQuery.trim()) return;
 
@@ -102,7 +98,6 @@ export default function NurseDashboard() {
             <Button variant="outline" onClick={handleSearch}>Search</Button>
           </div>
 
-          {/* Render Search Results */}
           {searchResults.length > 0 && (
              <div className="mt-4 border rounded-md p-4">
                <h3 className="font-semibold mb-2">Results:</h3>
