@@ -55,5 +55,15 @@
     "dev": "vite",
     "lint": "eslint .",
     "start": "cd server && uvicorn main:app --host 0.0.0.0 --port $PORT"
+  },
+
+
+
+  "pnpm": {
+    "onlyBuiltDependencies": [
+      "esbuild",
+      "sharp",
+      "workerd"
+    ]
   }
 }
