@@ -115,10 +115,16 @@ export const DepartmentModal: React.FC<DepartmentModalProps> = ({
     try {
       await onSave(formData)
       onClose()
-    } catch (err: any) {
-      console.error('Failed to save department:', err)
-      setError(err?.message || 'Failed to save department. Please try again.')
-    } finally {
+   } catch (err: unknown) {
+  console.error('Failed to save department:', err)
+
+  const message =
+    err instanceof Error
+      ? err.message
+      : 'Failed to save department. Please try again.'
+
+  setError(message)
+}finally {
       setLoading(false)
     }
   }

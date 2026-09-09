@@ -17,7 +17,7 @@ import {
   CardDescription,
 } from "../ui/card";
 import { Button } from "../ui/button";
-import { useApi } from "../../contexts/AuthContext";
+import { useApi } from "../../contexts/auth-hooks";
 
 const COLORS = ["#0088FE", "#00C49F", "#FFBB28", "#FF8042", "#8884D8", "#82CA9D"];
 
@@ -117,7 +117,7 @@ export function FinancialSummaryChart() {
                   borderColor: "hsl(var(--border))",
                   borderRadius: "var(--radius)",
                 }}
-                formatter={(value: any) => [`$${value}`, ""]}
+                formatter={(value) => [`$${value}`, ""]}
               />
               <Legend />
               <Bar

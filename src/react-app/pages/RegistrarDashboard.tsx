@@ -5,7 +5,7 @@ import { Badge } from '../components/ui/badge';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '../components/ui/tabs';
 import { Input } from '../components/ui/input';
 import { Label } from '../components/ui/label';
-import { useApi, useAuth } from '../contexts/AuthContext';
+import { useApi, useAuth } from '../contexts/auth-hooks';
 import { Users, UserPlus, ArrowRightLeft, FileText, Search, Upload, Download, AlertTriangle } from 'lucide-react';
 
 interface Student {
@@ -62,7 +62,7 @@ export const RegistrarDashboard = () => {
         alert("Student successfully admitted & Guardian linked.");
         loadData();
       }
-    } catch (err) { alert("Failed to admit student."); }
+    } catch { alert("Failed to admit student."); }
   };
 
   const handleBulkPromotion = async (e: React.FormEvent) => {
@@ -77,7 +77,7 @@ export const RegistrarDashboard = () => {
         alert(`Successfully promoted students from ${promotionForm.from_class} to ${promotionForm.to_class}`);
         loadData();
       }
-    } catch (err) { alert("Promotion failed."); }
+    } catch { alert("Promotion failed."); }
   };
 
   const handleGenerateCertificate = async (id: number, type: string) => {

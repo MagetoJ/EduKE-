@@ -8,7 +8,7 @@ import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, D
 import { Label } from '../components/ui/label'
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '../components/ui/select'
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '../components/ui/tabs'
-import { useAuth, useApi } from '../contexts/AuthContext'
+import { useAuth, useApi } from '../contexts/auth-hooks'
 import type { User as UserType } from '../contexts/AuthContext'
 import { useNavigate } from 'react-router-dom'
 
@@ -76,7 +76,7 @@ const CBC_GRADING_SCALE: CbcAchievementBand[] = [
 }*/
 
 export default function Academics() {
-  const { user } = useAuth() as any
+  const { user } = useAuth()
   const api = useApi()
   const navigate = useNavigate()
   

@@ -1,8 +1,15 @@
 # server/reporting/router.py
-from fastapi import APIRouter
+from fastapi import APIRouter, Depends
+from auth import require_roles
 from .cbc import router as cbc_router
 
-reporting_router = APIRouter(prefix="/api/reports", tags=["Reporting Module"])
+reporting_router = APIRouter(
+    prefix="/api/reports",
+    tags=["Reporting Module"],
+    dependencies=[Depends(require_roles(
+        "admin", "teacher", "hod", "class_teacher", "nurse", "librarian"
+    ))],
+)
 
 # CBC Domain
 reporting_router.include_router(cbc_router)

@@ -1,5 +1,6 @@
 import io
 import re
+import secrets
 from typing import Optional
 
 import pandas as pd
@@ -15,7 +16,8 @@ from utils.header_mapper import map_dataframe_headers
 
 router = APIRouter(prefix="/api/bulk-onboard", tags=["Bulk Onboarding"])
 
-DEFAULT_PASSWORD = "EduKeTempPassword123!"
+MAX_UPLOAD_SIZE = 10 * 1024 * 1024
+MAX_ROWS = 10_000
 
 ENTITY_ROLE_MAP = {
     "teachers": UserRole.TEACHER,
@@ -64,7 +66,9 @@ async def bulk_onboard_entities(
         if "admin" not in effective_roles and not getattr(current_user, "is_super_admin", False):
             raise HTTPException(status_code=403, detail="Only admins can onboard teachers or staff")
 
-    contents = await file.read()
+    contents = await file.read(MAX_UPLOAD_SIZE + 1)
+    if len(contents) > MAX_UPLOAD_SIZE:
+        raise HTTPException(status_code=413, detail="File exceeds the 10 MB maximum size")
     try:
         if file.filename.endswith(".csv"):
             df = pd.read_csv(io.BytesIO(contents))
@@ -80,6 +84,9 @@ async def bulk_onboard_entities(
     # Step 1: Dynamically rename columns based on alias mapping
     column_mapping = map_dataframe_headers(df.columns.tolist())
     df = df.rename(columns=column_mapping)
+
+    if len(df.index) > MAX_ROWS:
+        raise HTTPException(status_code=413, detail="Upload exceeds the 10,000 row maximum")
 
     if "full_name" not in df.columns:
         raise HTTPException(
@@ -99,7 +106,6 @@ async def bulk_onboard_entities(
 
     created_records = 0
     errors = []
-    hashed_default = get_password_hash(DEFAULT_PASSWORD)
     target_role = ENTITY_ROLE_MAP[entity_type]
 
     # Step 3: Process rows with individual savepoint management
@@ -130,7 +136,7 @@ async def bulk_onboard_entities(
                         email=email,
                         username=username,
                         full_name=full_name,
-                        hashed_password=hashed_default,
+                        hashed_password=get_password_hash(secrets.token_urlsafe(18)),
                         is_active=True,
                         is_super_admin=False,
                     )

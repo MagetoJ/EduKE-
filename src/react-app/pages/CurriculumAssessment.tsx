@@ -5,7 +5,7 @@ import { Badge } from '../components/ui/badge'
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '../components/ui/tabs'
 import { Label } from '../components/ui/label'
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '../components/ui/select'
-import { useApi, useAuth } from '../contexts/AuthContext'
+import { useApi, useAuth } from '../contexts/auth-hooks'
 import { BookOpen, Plus, TrendingUp, BarChart3 } from 'lucide-react'
 
 type CurriculumType = '844' | 'british' | 'american' | 'ib' | 'cbc'

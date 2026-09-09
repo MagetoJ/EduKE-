@@ -1,6 +1,6 @@
 import React, { useState } from 'react';
 import { Bell, Trash2, Check, CheckCheck } from 'lucide-react';
-import { useNotifications } from '../contexts/NotificationsContext';
+import { useNotifications } from '../contexts/notifications-hooks';
 import {
   DropdownMenu,
   DropdownMenuContent,

@@ -1,5 +1,6 @@
 import { Routes, Route, Navigate, useLocation } from "react-router-dom";
-import { AuthProvider, useAuth } from "@/contexts/AuthContext";
+import { AuthProvider } from "@/contexts/AuthContext";
+import { useAuth } from "@/contexts/auth-hooks";
 import { NotificationsProvider } from "@/contexts/NotificationsContext";
 import DashboardLayout from "@/components/layout/DashboardLayout";
 import Login from "@/pages/Login";

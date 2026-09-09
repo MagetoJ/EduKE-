@@ -25,7 +25,8 @@ import {
   Settings
 } from 'lucide-react'
 import { cn } from '../../lib/utils'
-import { useAuth, UserRole } from '../../contexts/AuthContext'
+import { useAuth } from '../../contexts/auth-hooks'
+import { UserRole } from '../../contexts/AuthContext'
 
 interface NavItem {
   title: string

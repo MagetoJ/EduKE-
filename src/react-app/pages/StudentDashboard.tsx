@@ -4,7 +4,7 @@ import { Button } from '../components/ui/button'
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '../components/ui/card'
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '../components/ui/tabs'
 import { Badge } from '../components/ui/badge'
-import { useApi, useAuth } from '../contexts/AuthContext'
+import { useApi, useAuth } from '../contexts/auth-hooks'
 
 type DisciplineRecord = {
   id: number

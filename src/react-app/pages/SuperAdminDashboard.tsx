@@ -1,8 +1,10 @@
-import { useState, useEffect } from 'react';
+import { useCallback, useState, useEffect } from 'react';
 import { Card, CardContent, CardHeader, CardTitle } from '../components/ui/card';
 import { Button } from '../components/ui/button';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '../components/ui/tabs';
-import { useApi, useAuth, User } from '../contexts/AuthContext';
+import { User } from '../contexts/AuthContext';
+import { useApi } from '../contexts/auth-hooks';
+import { useAuth } from '../contexts/auth-hooks';
 import { 
   School, 
   Users, 
@@ -58,11 +60,7 @@ export default function SuperAdminDashboard() {
   const [auditLogs, setAuditLogs] = useState<AuditLog[]>([]);
   const [isLoading, setIsLoading] = useState(true);
 
-  useEffect(() => {
-    fetchData();
-  }, []);
-
-  const fetchData = async () => {
+  const fetchData = useCallback(async () => {
     setIsLoading(true);
     try {
       const [statsRes, schoolsRes, logsRes] = await Promise.all([
@@ -79,7 +77,11 @@ export default function SuperAdminDashboard() {
     } finally {
       setIsLoading(false);
     }
-  };
+  }, [api]);
+
+  useEffect(() => {
+    fetchData();
+  }, [fetchData]);
 
   const toggleBlock = async (schoolId: number) => {
     try {

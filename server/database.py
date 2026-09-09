@@ -23,6 +23,7 @@ from sqlalchemy.ext.asyncio import create_async_engine, AsyncSession, async_sess
 from sqlalchemy.orm import declarative_base
 from tenacity import retry, stop_after_attempt, wait_exponential, before_sleep_log
 from dotenv import load_dotenv
+from config import settings
 
 load_dotenv()
 logger = logging.getLogger(__name__)
@@ -41,16 +42,12 @@ if not hasattr(asyncpg, "connect"):
         "and confirm with: python -c \"import asyncpg, inspect; print(asyncpg.__file__)\""
     )
 
-DATABASE_URL = os.getenv("DATABASE_URL", "").strip()
+DATABASE_URL = settings.database_url.strip()
 
-if not DATABASE_URL:
-    logger.warning("DATABASE_URL is not set — falling back to local SQLite for dev only.")
-    DATABASE_URL = "sqlite+aiosqlite:///./test.db"
-else:
-    if DATABASE_URL.startswith("postgres://"):
-        DATABASE_URL = DATABASE_URL.replace("postgres://", "postgresql+asyncpg://", 1)
-    elif DATABASE_URL.startswith("postgresql://") and "+asyncpg" not in DATABASE_URL:
-        DATABASE_URL = DATABASE_URL.replace("postgresql://", "postgresql+asyncpg://", 1)
+if DATABASE_URL.startswith("postgres://"):
+    DATABASE_URL = DATABASE_URL.replace("postgres://", "postgresql+asyncpg://", 1)
+elif DATABASE_URL.startswith("postgresql://") and "+asyncpg" not in DATABASE_URL:
+    DATABASE_URL = DATABASE_URL.replace("postgresql://", "postgresql+asyncpg://", 1)
 
 
 def _force_ipv4_host(hostname: str) -> str | None:

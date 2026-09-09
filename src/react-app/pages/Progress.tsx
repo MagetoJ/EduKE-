@@ -1,5 +1,5 @@
 import { useState, useEffect } from 'react'
-import { useAuth, useApi } from '../contexts/AuthContext'
+import { useAuth, useApi } from '../contexts/auth-hooks'
 import { Card, CardContent, CardHeader, CardTitle } from '../components/ui/card'
 import { Loader2, Calendar, Target, BarChart3, Award } from 'lucide-react'
 

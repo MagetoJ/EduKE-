@@ -8,7 +8,7 @@ import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, D
 import { Label } from '../components/ui/label'
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '../components/ui/select'
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '../components/ui/tabs'
-import { useApi } from '../contexts/AuthContext'
+import { useApi } from '../contexts/auth-hooks'
 import {
   AlertDialog,
   AlertDialogAction,
@@ -21,6 +21,7 @@ import {
   AlertDialogTrigger,
 } from "../components/ui/alert-dialog"
 
+type RawStaffMember = Record<string, unknown>;
 type StaffMember = {
   id: string;
   name: string;
@@ -93,13 +94,34 @@ export default function Staff() {
     status: ''
   })
 
-  const extractStaffArray = (data: any): any[] => {
-    if (!data) return [];
-    if (data.success && Array.isArray(data.data)) return data.data;
-    if (Array.isArray(data)) return data;
-    if (data.data && Array.isArray(data.data)) return data.data;
-    return [];
-  };
+  const extractStaffArray = (data: unknown): RawStaffMember[] => {
+  if (!data || typeof data !== 'object') return [];
+
+  const response = data as Record<string, unknown>;
+
+  if (response.success && Array.isArray(response.data)) {
+    return response.data.filter(
+      (item): item is RawStaffMember =>
+        typeof item === 'object' && item !== null
+    );
+  }
+
+  if (Array.isArray(data)) {
+    return data.filter(
+      (item): item is RawStaffMember =>
+        typeof item === 'object' && item !== null
+    );
+  }
+
+  if (Array.isArray(response.data)) {
+    return response.data.filter(
+      (item): item is RawStaffMember =>
+        typeof item === 'object' && item !== null
+    );
+  }
+
+  return [];
+};
 
   useEffect(() => {
     const fetchStaff = async () => {

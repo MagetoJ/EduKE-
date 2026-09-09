@@ -6,7 +6,7 @@ import { Label } from '../components/ui/label'
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '../components/ui/tabs'
 import { Badge } from '../components/ui/badge'
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '../components/ui/select'
-import { useApi, useAuth } from '../contexts/AuthContext'
+import { useApi, useAuth } from '../contexts/auth-hooks'
 
 type DisciplineRecord = {
   id: number

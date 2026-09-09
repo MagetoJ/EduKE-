@@ -1,7 +1,7 @@
 import { useState, useEffect } from 'react';
 import { Tabs, TabsList, TabsTrigger, TabsContent } from '../components/ui/tabs';
 import { PowerBIEmbedCard } from '../components/PowerBIEmbedCard';
-import { useAuth } from '../contexts/AuthContext'; // <-- Imported AuthContext
+import { useAuth } from '../contexts/auth-hooks'; // <-- Imported AuthContext
 
 // 1. Define the Types
 interface KPI {
@@ -23,7 +23,7 @@ interface TableRow {
 
 interface ReportData {
   kpis: KPI[];
-  chart_data: Record<string, any>[];
+  chart_data: Record<string, unknown>[];
   table_data: TableRow[];
 }
 

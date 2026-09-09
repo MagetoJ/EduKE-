@@ -6,7 +6,7 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from '../components/ui/tabs'
 import { Input } from '../components/ui/input'
 import { Label } from '../components/ui/label'
 import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogTitle, AlertDialogTrigger } from '../components/ui/alert-dialog'
-import { useApi, useAuth } from '../contexts/AuthContext'
+import { useApi, useAuth } from '../contexts/auth-hooks'
 import { Bus, User, MapPin, DollarSign, Plus, Edit2, Trash2, Search } from 'lucide-react'
 
 type TransportRoute = {
@@ -35,7 +35,7 @@ export default function Transport() {
   const { user } = useAuth()
   const apiFetch = useApi()
   const [routes, setRoutes] = useState<TransportRoute[]>([])
-  const [_enrollments, setEnrollments] = useState<TransportEnrollment[]>([])
+  const [enrollments, setEnrollments] = useState<TransportEnrollment[]>([])
   const [isLoading, setIsLoading] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const [searchTerm, setSearchTerm] = useState('')
@@ -61,7 +61,9 @@ export default function Transport() {
       try {
         const enrollmentsRes = await apiFetch('/api/transport/enrollments');
         if (enrollmentsRes.ok) enrollmentsData = await enrollmentsRes.json();
-      } catch (e) {}
+      } catch {
+              // Enrollment data is optional; route data can still be displayed.
+      }
 
       setRoutes(routesData.data || routesData || [])
       setEnrollments(enrollmentsData.data || enrollmentsData || [])
@@ -269,13 +271,59 @@ export default function Transport() {
         </TabsContent>
 
         <TabsContent value="enrollments" className="space-y-4">
-           <Card>
-             <CardContent className="pt-6 text-center text-gray-500">
-               <Bus className="w-12 h-12 mx-auto mb-2 text-gray-300" />
-               <p>No enrollments found</p>
-             </CardContent>
-           </Card>
-        </TabsContent>
+  {enrollments.length === 0 ? (
+    <Card>
+      <CardContent className="pt-6 text-center text-gray-500">
+        <Bus className="w-12 h-12 mx-auto mb-2 text-gray-300" />
+        <p>No enrollments found</p>
+      </CardContent>
+    </Card>
+  ) : (
+    <div className="grid gap-4">
+      {enrollments.map((enrollment) => (
+        <Card key={enrollment.id}>
+          <CardContent className="pt-6">
+            <div className="flex items-center justify-between gap-4">
+              <div>
+                <h3 className="font-semibold">
+                  {enrollment.first_name} {enrollment.last_name}
+                </h3>
+
+                <p className="text-sm text-gray-500">
+                  Student ID: {enrollment.student_id}
+                </p>
+
+                <p className="text-sm text-gray-500">
+                  Route: {enrollment.route_name}
+                </p>
+              </div>
+
+              <div className="text-right">
+                <Badge
+                  variant={
+                    enrollment.payment_status === 'paid'
+                      ? 'default'
+                      : 'secondary'
+                  }
+                >
+                  {enrollment.payment_status}
+                </Badge>
+
+                <p className="mt-2 text-sm">
+                  Paid: {enrollment.amount_paid.toLocaleString()}
+                </p>
+
+                <p className="text-sm text-gray-500">
+                  Due: {enrollment.amount_due.toLocaleString()}
+                </p>
+              </div>
+            </div>
+          </CardContent>
+        </Card>
+      ))}
+    </div>
+  )}
+</TabsContent>
       </Tabs>
 
       {showRouteDialog && (

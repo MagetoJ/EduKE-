@@ -123,6 +123,23 @@ class User(Base):
     # Relationships
     schools = relationship("School", secondary=school_users, back_populates="users")
 
+
+class RefreshToken(Base):
+    """Rotating, server-tracked refresh token metadata.
+
+    Only the SHA-256 digest is persisted; the bearer value is sent in an
+    HttpOnly cookie and is never returned in an API response.
+    """
+    __tablename__ = "refresh_tokens"
+
+    id = Column(Integer, primary_key=True, index=True)
+    user_id = Column(Integer, ForeignKey("users.id", ondelete="CASCADE"), nullable=False, index=True)
+    token_hash = Column(String(64), unique=True, nullable=False, index=True)
+    expires_at = Column(DateTime, nullable=False, index=True)
+    revoked_at = Column(DateTime, nullable=True, index=True)
+    created_at = Column(DateTime, default=datetime.utcnow, nullable=False)
+    replaced_by_token_id = Column(Integer, ForeignKey("refresh_tokens.id"), nullable=True)
+
 class Student(Base):
     """Student specific data linked to School tenant"""
     __tablename__ = "students"

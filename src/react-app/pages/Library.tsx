@@ -1,5 +1,5 @@
 import React, { useCallback, useEffect, useMemo, useState } from 'react';
-import { useAuth, useApi } from '../contexts/AuthContext';
+import { useAuth, useApi } from '../contexts/auth-hooks';
 import { Button } from '../components/ui/button';
 import { Input } from '../components/ui/input';
 import { Card, CardHeader, CardTitle, CardContent } from '../components/ui/card';
@@ -617,35 +617,46 @@ export default function Library() {
 
             {/* Search Results List */}
             <div className="max-h-48 overflow-y-auto border rounded-md p-2 space-y-1">
-              {filteredBorrowers.map((user: any) => (
-                <div 
-                  key={user.id}
-                  onClick={() => setBorrowerId(String(user.id))}
-                  className={`p-2 rounded cursor-pointer text-sm flex justify-between items-center ${
-                    borrowerId === String(user.id) ? 'bg-blue-100 border border-blue-500' : 'hover:bg-gray-100'
-                  }`}
-                >
-                  {borrowerType === 'student' ? (
-                    <>
-                      <div>
-                        <p className="font-medium">{user.first_name} {user.last_name}</p>
-                        <p className="text-xs text-gray-500">ADM: {user.admission_number || 'N/A'}</p>
-                      </div>
-                      {(user.grade || user.class) && (
-                        <Badge variant="secondary">{user.grade} {user.class ? `- ${user.class}` : ''}</Badge>
-                      )}
-                    </>
-                  ) : (
-                    <>
-                      <div>
-                        <p className="font-medium">{user.name}</p>
-                        <p className="text-xs text-gray-500">EMP ID: {user.employee_id || 'N/A'}</p>
-                      </div>
-                      {user.department && <Badge variant="secondary">{user.department}</Badge>}
-                    </>
-                  )}
-                </div>
-              ))}
+           {filteredBorrowers.map((user) => (
+  <div
+    key={user.id}
+    onClick={() => setBorrowerId(String(user.id))}
+    className={`p-2 rounded cursor-pointer text-sm flex justify-between items-center ${
+      borrowerId === String(user.id)
+        ? 'bg-blue-100 border border-blue-500'
+        : 'hover:bg-gray-100'
+    }`}
+  >
+    {'first_name' in user ? (
+      <>
+        <div>
+          <p>
+            {user.first_name} {user.last_name}
+          </p>
+          <p>ADM: {user.admission_number || 'N/A'}</p>
+        </div>
+
+        {(user.grade || user.class) && (
+          <Badge>
+            {user.grade}
+            {user.class ? ` - ${user.class}` : ''}
+          </Badge>
+        )}
+      </>
+    ) : (
+      <>
+        <div>
+          <p>{user.name}</p>
+          <p>EMP ID: {user.employee_id || 'N/A'}</p>
+        </div>
+
+        {user.department && (
+          <Badge>{user.department}</Badge>
+        )}
+      </>
+    )}
+  </div>
+))}
               {filteredBorrowers.length === 0 && (
                 <p className="text-center text-sm text-gray-500 p-2">No {borrowerType}s found matching your search.</p>
               )}

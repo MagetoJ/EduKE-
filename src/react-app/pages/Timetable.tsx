@@ -13,7 +13,7 @@ import {
   Select, SelectContent, SelectItem,
   SelectTrigger, SelectValue
 } from '../components/ui/select'
-import { useAuth, useApi } from '../contexts/AuthContext'
+import { useAuth, useApi } from '../contexts/auth-hooks'
 import { Input } from '../components/ui/input'
 import {
   AlertDialog, AlertDialogAction, AlertDialogCancel,
@@ -145,7 +145,7 @@ function normalizeTime(t: string | undefined | null) {
 // ─────────────────────────── Component ───────────────────────────
 
 export default function Timetable() {
-  const { user } = useAuth() as any
+  const { user } = useAuth()
   const api = useApi()
   const printRef = useRef<HTMLDivElement>(null)
 
@@ -177,7 +177,9 @@ export default function Timetable() {
   const [gradeLevels,     setGradeLevels]     = useState<string[]>([])
 
   // Derive role helpers
-  const canManage = ['admin', 'super_admin', 'timetable_manager', 'registrar', 'hod'].includes(user?.role)
+const canManage = user?.role
+  ? ['admin', 'super_admin', 'timetable_manager', 'registrar', 'hod'].includes(user.role)
+  : false;
 
   const headerTitle = user?.role === 'student' ? 'MY CLASS SCHEDULE'
     : user?.role === 'parent' ? "CHILDREN'S SCHEDULE"

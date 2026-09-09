@@ -1,9 +1,9 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useCallback } from 'react';
 import { Card, CardContent, CardHeader, CardTitle } from '../components/ui/card';
 import { Button } from '../components/ui/button';
 import { Badge } from '../components/ui/badge';
 import { ClipboardList, FileText, Landmark, ShieldAlert } from 'lucide-react';
-import { useApi } from '../contexts/AuthContext';
+import { useApi } from '../contexts/auth-hooks';
 import { BulkOnboardDialog } from '../components/BulkOnboardDialog';
 
 interface Student {
@@ -14,9 +14,14 @@ interface Student {
   current_balance: number;
 }
 
+interface ClassDetails {
+  grade_level: string;
+  stream_section: string;
+}
+
 export default function ClassTeacherDashboard() {
   const api = useApi();
-  const [classDetails, setClassDetails] = useState<any>(null);
+  const [classDetails, setClassDetails] = useState<ClassDetails | null>(null);
   const [roster, setRoster] = useState<Student[]>([]);
   const [activeTab, setActiveTab] = useState('attendance'); 
 
@@ -30,26 +35,26 @@ export default function ClassTeacherDashboard() {
   const [escalationReason, setEscalationReason] = useState('Behavioral Issue');
   const [escalationDetails, setEscalationDetails] = useState('');
 
-  useEffect(() => {
-    fetchManagedStream();
-  }, [api]);
+  const fetchManagedStream = useCallback(() => {
+  api('/api/class-teacher/my-managed-stream')
+    .then(res => res.json())
+    .then(data => {
+      setClassDetails(data.stream_info);
+      setRoster(data.students || []);
 
-  const fetchManagedStream = () => {
-    // Corrected target endpoint link
-    api('/api/class-teacher/my-managed-stream')
-      .then(res => res.json())
-      .then(data => {
-        setClassDetails(data.stream_info);
-        setRoster(data.students || []);
-        
-        // Default student attendance logs to "present"
-        const initialAttendance: Record<number, string> = {};
-        data.students?.forEach((s: Student) => {
-          initialAttendance[s.id] = 'present';
-        });
-        setAttendance(initialAttendance);
+      const initialAttendance: Record<number, string> = {};
+
+      data.students?.forEach((s: Student) => {
+        initialAttendance[s.id] = 'present';
       });
-  };
+
+      setAttendance(initialAttendance);
+    });
+}, [api]);
+
+useEffect(() => {
+  fetchManagedStream();
+}, [fetchManagedStream]);
 
   const handleAttendanceChange = (studentId: number, status: string) => {
     setAttendance(prev => ({ ...prev, [studentId]: status }));

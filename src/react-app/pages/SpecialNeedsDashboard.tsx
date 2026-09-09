@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { useApi } from '../contexts/AuthContext';
+import { useApi } from '../contexts/auth-hooks';
 import { Card, CardContent, CardHeader, CardTitle } from '../components/ui/card';
 
 import { Button } from '../components/ui/button';

@@ -1,4 +1,4 @@
-import { useEffect, useState, FormEvent } from 'react'
+import { useState, useEffect, useCallback, type FormEvent } from 'react'
 import { 
   Plus, 
   User, 
@@ -20,7 +20,7 @@ import { Card, CardContent } from '../components/ui/card'
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle, DialogTrigger } from '../components/ui/dialog'
 import { Label } from '../components/ui/label'
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '../components/ui/select'
-import { useApi } from '../contexts/AuthContext'
+import { useApi } from '../contexts/auth-hooks'
 import { useNavigate } from 'react-router-dom'
 import { Badge } from '../components/ui/badge'
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from '../components/ui/dropdown-menu'
@@ -106,9 +106,9 @@ export const SeniorSchoolPathwayModal: React.FC<PathwayProps> = ({ studentId, on
       } else {
         onSuccess();
       }
-    } catch (err) {
-      setErrorMsg("Network connection error encountered.");
-    }
+    } catch {
+  setErrorMsg("Network connection error encountered.");
+}
   };
 
   return (
@@ -162,7 +162,7 @@ export default function Students() {
   // Track state for showing pathway transition view
   const [activePathwayStudentId, setActivePathwayStudentId] = useState<string | null>(null)
 
-  const fetchStudents = async () => {
+  const fetchStudents = useCallback(async () => {
     setIsLoading(true)
     setError(null)
     try {
@@ -175,11 +175,11 @@ export default function Students() {
     } finally {
       setIsLoading(false)
     }
-  }
+  }, [api]);
 
-  useEffect(() => {
-    fetchStudents()
-  }, [api])
+ useEffect(() => {
+  fetchStudents();
+}, [fetchStudents]);
 
   const handleEnrollDialogChange = (open: boolean) => {
     if (!open) {

@@ -4,17 +4,14 @@ from sqlalchemy import Column, Integer, String, Float
 from pydantic import BaseModel
 from typing import List, Optional
 from database import Base, get_db
+from auth import get_current_school
+from models import TransportRoute
+
 
 router = APIRouter(tags=["Transport & Boarding"])
 
 # --- DATABASE MODELS ---
-class TransportRoute(Base):
-    __tablename__ = "transport_routes"
-    __table_args__ = {'extend_existing': True}
-    
-    id = Column(Integer, primary_key=True, index=True)
-    route_name = Column(String, nullable=False)
-    capacity = Column(Integer, default=0)
+
 
 class Dormitory(Base):
     __tablename__ = "dormitories"

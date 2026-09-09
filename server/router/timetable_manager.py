@@ -8,9 +8,9 @@ from sqlalchemy import select
 from database import get_db
 from models import User, School, school_users, UserRole
 from courses import Course
-from auth import get_current_user, get_current_school
+from auth import get_current_user, get_current_school, get_effective_roles
 
-router = APIRouter(prefix="/api", tags=["Timetable Manager"])
+router = APIRouter(prefix="/api", tags=["Timetable Manager"], dependencies=[Depends(get_current_user)])
 
 MASTER_SLOTS_STORE = []
 
@@ -30,6 +30,20 @@ async def get_optional_current_user(request: Request, db: AsyncSession = Depends
     auth_header = request.headers.get("Authorization")
     if not auth_header or not auth_header.startswith("Bearer "):
         return None
+
+
+async def require_timetable_manager(
+    auth_data=Depends(get_current_user),
+    school: School = Depends(get_current_school),
+    db: AsyncSession = Depends(get_db),
+):
+    user, _payload = auth_data
+    if user.is_super_admin:
+        return user
+    roles = await get_effective_roles(db, user.id, school.id)
+    if not roles.intersection({"admin", "timetable_manager"}):
+        raise HTTPException(status_code=403, detail="Timetable manager privileges required")
+    return user
     try:
         token = auth_header.split(" ")[1]
         return await get_current_user(token=token, db=db)
@@ -38,7 +52,7 @@ async def get_optional_current_user(request: Request, db: AsyncSession = Depends
 
 # 1. GET /api/teachers
 @router.get("/teachers")
-async def get_school_teachers(db: AsyncSession = Depends(get_db)):
+async def get_school_teachers(db: AsyncSession = Depends(get_db), school: School = Depends(get_current_school)):
     query = (
         select(
             User.id,
@@ -48,6 +62,7 @@ async def get_school_teachers(db: AsyncSession = Depends(get_db)):
         )
         .join(school_users, User.id == school_users.c.user_id)
         .where(
+            school_users.c.school_id == school.id,
             school_users.c.is_active == True,
             school_users.c.role.in_([UserRole.TEACHER, "teacher", "class_teacher", "hod"])
         )
@@ -67,7 +82,7 @@ async def get_school_teachers(db: AsyncSession = Depends(get_db)):
 
 # 2. GET /api/timetables/master
 @router.get("/timetables/master")
-async def get_master_timetable():
+async def get_master_timetable(_user=Depends(get_current_user)):
     global MASTER_SLOTS_STORE
     return {"success": True, "data": MASTER_SLOTS_STORE}
 
@@ -99,12 +114,13 @@ async def get_teacher_personal_schedule(
 @router.post("/timetables/generate-auto")
 async def auto_generate_timetable(
     db: AsyncSession = Depends(get_db),
-    user: Optional[tuple] = Depends(get_optional_current_user)
+    user: User = Depends(require_timetable_manager),
+    school: School = Depends(get_current_school),
 ):
     global MASTER_SLOTS_STORE
 
     # Pull assigned courses from DB
-    query = select(Course)
+    query = select(Course).where(Course.school_id == school.id)
     result = await db.execute(query)
     assigned_courses = result.scalars().all()
 
@@ -187,12 +203,15 @@ async def auto_generate_timetable(
 
 # 5. POST /api/timetables/publish
 @router.post("/timetables/publish")
-async def publish_timetable():
+async def publish_timetable(_user: User = Depends(require_timetable_manager)):
     return {"success": True, "message": "Master timetable successfully published!"}
 
 # 6. POST /api/timetables/slots (Manual Add)
 @router.post("/timetables/slots")
-async def create_slot(payload: SlotPayload):
+async def create_slot(
+    payload: SlotPayload,
+    _user: User = Depends(require_timetable_manager),
+):
     global MASTER_SLOTS_STORE
     slot = payload.dict()
     
@@ -212,7 +231,11 @@ async def create_slot(payload: SlotPayload):
 
 # 7. PUT /api/timetables/slots/{slot_id} (Manual Edit)
 @router.put("/timetables/slots/{slot_id}")
-async def update_slot(slot_id: int, payload: SlotPayload):
+async def update_slot(
+    slot_id: int,
+    payload: SlotPayload,
+    _user: User = Depends(require_timetable_manager),
+):
     global MASTER_SLOTS_STORE
     for i, s in enumerate(MASTER_SLOTS_STORE):
         if s["id"] == slot_id:

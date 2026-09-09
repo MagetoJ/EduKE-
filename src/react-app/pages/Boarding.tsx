@@ -6,7 +6,7 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from '../components/ui/tabs'
 import { Input } from '../components/ui/input'
 import { Label } from '../components/ui/label'
 import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogTitle, AlertDialogTrigger } from '../components/ui/alert-dialog'
-import { useApi, useAuth } from '../contexts/AuthContext'
+import { useApi, useAuth } from '../contexts/auth-hooks'
 import { Home, Users, AlertTriangle, Plus, Edit2, Trash2, Search } from 'lucide-react'
 
 type Dormitory = {
@@ -18,37 +18,11 @@ type Dormitory = {
   gender: string
 }
 
-type BoardingEnrollment = {
-  id: number
-  student_id: number
-  first_name: string
-  last_name: string
-  admission_number: string
-  payment_status: string
-  amount_due: number
-  amount_paid: number
-  status: string
-  check_in_date: string
-}
-
-type BoardingViolation = {
-  id: number
-  student_id: number
-  first_name: string
-  last_name: string
-  violation_type: string
-  severity: string
-  date_reported: string
-  description: string
-  status: string
-}
 
 export default function Boarding() {
   const { user } = useAuth()
   const apiFetch = useApi()
   const [dorms, setDorms] = useState<Dormitory[]>([])
-  const [_enrollments, setEnrollments] = useState<BoardingEnrollment[]>([])
-  const [_violations, setViolations] = useState<BoardingViolation[]>([])
   const [isLoading, setIsLoading] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const [searchTerm, setSearchTerm] = useState('')
@@ -68,21 +42,9 @@ export default function Boarding() {
       if (!dormsRes.ok) throw new Error('Failed to load boarding data')
       const dormsData = await dormsRes.json()
 
-      let enrollmentsData = [];
-      let violationsData = [];
-      try {
-        const enrollmentsRes = await apiFetch('/api/boarding/enrollments');
-        if (enrollmentsRes.ok) enrollmentsData = await enrollmentsRes.json();
-      } catch (e) {}
-
-      try {
-        const violationsRes = await apiFetch('/api/boarding/violations');
-        if (violationsRes.ok) violationsData = await violationsRes.json();
-      } catch (e) {}
+  
 
       setDorms(dormsData.data || dormsData || [])
-      setEnrollments(enrollmentsData.data || enrollmentsData || [])
-      setViolations(violationsData.data || violationsData || [])
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Failed to load data')
     } finally {

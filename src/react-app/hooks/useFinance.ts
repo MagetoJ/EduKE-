@@ -141,8 +141,8 @@ export function usePaymentStatus(checkoutRequestId: string | null) {
     queryKey: ['paymentStatus', checkoutRequestId],
     queryFn: () => checkPaymentStatus(checkoutRequestId!),
     enabled: Boolean(checkoutRequestId),
-    refetchInterval: (query: any) => {
-      const data = query.state.data as PaymentStatusResponse | undefined;
+    refetchInterval: (query) => {
+  const data = query.state.data as PaymentStatusResponse | undefined;
       // Continue polling every 3 seconds while PENDING
       if (!data || data.status === 'PENDING') {
         return 3000;

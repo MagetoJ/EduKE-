@@ -18,7 +18,7 @@ import {
   UserCog, MessageSquareWarning, CalendarClock, Mail, Upload,
   GraduationCap, Search, X, Loader2
 } from 'lucide-react';
-import { useApi } from '../contexts/AuthContext';
+import { useApi } from '../contexts/auth-hooks';
 
 interface HODContact {
   id: number;
@@ -152,6 +152,18 @@ interface GuardianMessage {
   created_at: string | null;
 }
 
+interface Strand {
+  id: number;
+  name: string;
+}
+
+interface CourseStudent {
+  id: number;
+  first_name: string;
+  last_name: string;
+  admission_number: string | null;
+}
+
 const statusBadgeVariant = (status: string): 'default' | 'secondary' | 'destructive' | 'outline' => {
   const s = status.toLowerCase();
   if (s.includes('reject')) return 'destructive';
@@ -168,8 +180,8 @@ export default function TeacherDashboard() {
   // Grade Form State Indicators
   const [selectedCourse, setSelectedCourse] = useState('');
   const [selectedStrand, setSelectedStrand] = useState('');
-  const [strands, setStrands] = useState([]);
-  const [students, setStudents] = useState([]);
+  const [strands, setStrands] = useState<Strand[]>([]);
+  const [students, setStudents] = useState<CourseStudent[]>([]);
 
   // Homeroom students, loaded lazily only when the Escalate dialog opens
   const [homeroomStudents, setHomeroomStudents] = useState<{ id: number; first_name: string; last_name: string }[]>([]);
@@ -313,18 +325,18 @@ export default function TeacherDashboard() {
                 <label className="text-xs font-semibold block mb-1">Select Learning Area Offering</label>
                 <select className="w-full p-2 border rounded bg-background" onChange={(e) => handleCourseChange(e.target.value)}>
                   <option value="">-- Choose Class Offering --</option>
-                  {dashboardData.teaching_subjects.map((c: any) => (
-                    <option key={c.subject_code} value={c.subject_code}>
-                      {c.class_name} - {c.subject_name}
-                    </option>
-                  ))}
+                  {dashboardData.teaching_subjects.map((c) => (
+                    <option key={c.subject_code ?? c.course_id} value={c.subject_code ?? ''}>
+                    {c.class_name} - {c.subject_name}
+                 </option>
+                 ))}
                 </select>
               </div>
               <div>
                 <label className="text-xs font-semibold block mb-1">Select KICD Sub-Strand Target</label>
                 <select className="w-full p-2 border rounded bg-background disabled:opacity-50" disabled={!selectedCourse} onChange={(e) => setSelectedStrand(e.target.value)}>
                   <option value="">-- Choose Sub-Strand Target --</option>
-                  {strands.map((s: any) => (
+                  {strands.map((s) => (
                     <option key={s.id} value={s.id}>{s.name}</option>
                   ))}
                 </select>
@@ -339,7 +351,7 @@ export default function TeacherDashboard() {
                 {students.length === 0 ? (
                   <p className="text-sm text-slate-500">No students found for this class.</p>
                 ) : (
-                  students.map((student: any) => (
+                  students.map((student) => (
                     <div key={student.id} className="p-3 border rounded-lg flex items-center justify-between bg-background">
                       <span className="font-medium text-sm">{student.first_name} {student.last_name} ({student.admission_number})</span>
                       <select className="p-1.5 border rounded text-xs font-bold bg-muted/50">

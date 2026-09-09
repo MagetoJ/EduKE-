@@ -1,9 +1,9 @@
-import { useEffect, useState } from 'react'
+import { useCallback, useEffect, useState } from 'react'
 import { Card, CardContent, CardHeader, CardTitle } from '../components/ui/card'
 import { Button } from '../components/ui/button'
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '../components/ui/tabs'
 import { Input } from '../components/ui/input'
-import { useApi } from '../contexts/AuthContext'
+import { useApi } from '../contexts/auth-hooks'
 import { Users, BookOpen, AlertTriangle, CheckCircle, XCircle, BarChart3, Package, RefreshCw, MessageSquare } from 'lucide-react'
 
 type Teacher = { id: number; name: string; email: string; weekly_periods: number }
@@ -93,7 +93,7 @@ export default function HodDashboard() {
   const [assigningClass, setAssigningClass] = useState(false)
   const [assignError, setAssignError] = useState('')
 
-  const loadDashboard = async () => {
+  const loadDashboard = useCallback(async () => {
     try {
       setLoading(true)
       const dRes = await api('/api/hod/my-department'); const dJson = await dRes.json();
@@ -133,9 +133,9 @@ export default function HodDashboard() {
     } finally {
       setLoading(false)
     }
-  }
+  }, [api])
 
-  useEffect(() => { loadDashboard() }, [])
+  useEffect(() => { loadDashboard() }, [loadDashboard])
 
   const handleTeacherAssign = async (courseId: number, teacherId: number) => {
     const res = await api(`/api/hod/courses/${courseId}/assign`, {

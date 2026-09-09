@@ -4,7 +4,7 @@ import { BookOpen, Library as LibraryIcon, AlertTriangle, RotateCcw, Plus, Refre
 import { Card, CardContent, CardHeader, CardTitle } from '../components/ui/card'
 import { Button } from '../components/ui/button'
 import { Badge } from '../components/ui/badge'
-import { useAuth, useApi } from '../contexts/AuthContext'
+import { useAuth, useApi } from '../contexts/auth-hooks'
 
 type LibraryStats = {
   title_count: number

@@ -2,7 +2,7 @@ import { useState, useEffect, useCallback } from 'react';
 import { Card, CardHeader, CardTitle, CardContent } from '../components/ui/card';
 import { Button } from '../components/ui/button';
 import { Input } from '../components/ui/input';
-import { useApi } from '../contexts/AuthContext';
+import { useApi } from '../contexts/auth-hooks';
 import { clinicService, StudentSearchResult, ClinicStats } from '../lib/clinicService';
 
 export default function NurseDashboard() {

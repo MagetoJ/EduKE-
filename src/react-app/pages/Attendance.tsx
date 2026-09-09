@@ -5,7 +5,7 @@ import { Input } from '../components/ui/input'
 import { Card, CardContent, CardHeader, CardTitle } from '../components/ui/card'
 import { Label } from '../components/ui/label'
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '../components/ui/select'
-import { useApi } from '../contexts/AuthContext'
+import { useApi } from '../contexts/auth-hooks'
 
 type AttendanceStudent = {
   id: string

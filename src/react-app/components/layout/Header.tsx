@@ -1,7 +1,7 @@
 import { Search, LogOut, User as UserIcon, Menu, ArrowLeftCircle } from 'lucide-react'
 import { Button } from '../ui/button'
 import { Input } from '../ui/input'
-import { useAuth } from '../../contexts/AuthContext'
+import { useAuth } from '../../contexts/auth-hooks'
 import { ThemeToggle } from '../ThemeToggle'
 import NotificationsDropdown from '../NotificationsDropdown'
 

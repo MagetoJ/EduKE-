@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useState } from 'react'
 import { Link, useSearchParams } from 'react-router-dom'
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '../components/ui/card'
-import { buttonVariants } from '../components/ui/button'
+import { buttonVariants } from '../components/ui/button-variants'
 import { cn } from '../lib/utils'
 
 export default function VerifyEmail() {

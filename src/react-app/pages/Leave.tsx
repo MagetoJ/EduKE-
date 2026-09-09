@@ -6,7 +6,7 @@ import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, D
 import { Label } from '../components/ui/label'
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '../components/ui/select'
 import { Textarea } from '../components/ui/textarea'
-import { useAuth, useApi } from '../contexts/AuthContext'
+import { useAuth, useApi } from '../contexts/auth-hooks'
 
 // Add this type definition
 type LeaveRequest = {

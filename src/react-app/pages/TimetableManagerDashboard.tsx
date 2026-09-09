@@ -18,6 +18,7 @@ import { Badge } from '@/components/ui/badge';
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from '@/components/ui/dialog';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
+import { useApi } from '@/contexts/auth-hooks';
 
 interface TimetableSlot {
   id: number;
@@ -40,11 +41,12 @@ const DAYS = ['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday'];
 const PERIODS = [1, 2, 3, 4, 5, 6, 7, 8];
 
 export default function TimetableManagerDashboard() {
+  const api = useApi();
   const [slots, setSlots] = useState<TimetableSlot[]>([]);
   const [teachers, setTeachers] = useState<Teacher[]>([]);
   const [loading, setLoading] = useState<boolean>(true);
   const [generating, setGenerating] = useState<boolean>(false);
-  const [_error, setError] = useState<string | null>(null);
+  const [, setError] = useState<string | null>(null);
   const [viewMode, setViewMode] = useState<'class' | 'teacher' | 'room'>('class');
   const [selectedFilter, setSelectedFilter] = useState<string>('');
   
@@ -53,23 +55,13 @@ export default function TimetableManagerDashboard() {
   const [selectedSlot, setSelectedSlot] = useState<Partial<TimetableSlot> | null>(null);
   const [saving, setSaving] = useState<boolean>(false);
 
-  const getAuthHeaders = (): Record<string, string> => {
-    const token = localStorage.getItem('accessToken');
-    return {
-      'Accept': 'application/json',
-      'Content-Type': 'application/json',
-      ...(token ? { 'Authorization': `Bearer ${token}` } : {})
-    };
-  };
-
   const fetchData = useCallback(async () => {
     setLoading(true);
     setError(null);
     try {
-      const headers = getAuthHeaders();
       const [timetableRes, teachersRes] = await Promise.all([
-        fetch('/api/timetables/master', { headers }),
-        fetch('/api/teachers', { headers })
+        api('/api/timetables/master'),
+        api('/api/teachers')
       ]);
 
       if (!timetableRes.ok || !teachersRes.ok) {
@@ -104,7 +96,7 @@ export default function TimetableManagerDashboard() {
     } finally {
       setLoading(false);
     }
-  }, [selectedFilter]);
+  }, [api, selectedFilter]);
 
   useEffect(() => {
     fetchData();
@@ -115,9 +107,8 @@ export default function TimetableManagerDashboard() {
     if (!confirm('Auto-generating will create a conflict-free master timetable based on HOD teacher & class assignments. Continue?')) return;
     setGenerating(true);
     try {
-      const res = await fetch('/api/timetables/generate-auto', {
+      const res = await api('/api/timetables/generate-auto', {
         method: 'POST',
-        headers: getAuthHeaders()
       });
 
       if (!res.ok) throw new Error('Auto-generation failed.');
@@ -183,9 +174,8 @@ export default function TimetableManagerDashboard() {
       const method = selectedSlot.id ? 'PUT' : 'POST';
       const url = selectedSlot.id ? `/api/timetables/slots/${selectedSlot.id}` : '/api/timetables/slots';
       
-      const res = await fetch(url, {
+      const res = await api(url, {
         method,
-        headers: getAuthHeaders(),
         body: JSON.stringify(selectedSlot)
       });
 
@@ -205,9 +195,8 @@ export default function TimetableManagerDashboard() {
   const handlePublishTimetable = async () => {
     if (!confirm('Are you sure you want to publish the master timetable?')) return;
     try {
-      const res = await fetch('/api/timetables/publish', {
+      const res = await api('/api/timetables/publish', {
         method: 'POST',
-        headers: getAuthHeaders()
       });
 
       if (!res.ok) throw new Error('Failed to publish timetable.');

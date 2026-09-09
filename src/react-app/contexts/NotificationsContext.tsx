@@ -1,5 +1,6 @@
-import React, { createContext, useCallback, useContext, useEffect, useState } from 'react';
-import { useApi, useAuth } from './AuthContext';
+import React, { useCallback, useEffect, useState } from 'react';
+import { useApi, useAuth } from './auth-hooks';
+import { NotificationsContext, type NotificationsContextType } from './notifications-context';
 
 export interface Notification {
   id: number;
@@ -13,20 +14,6 @@ export interface Notification {
   read_at?: string;
   created_at: string;
 }
-
-interface NotificationsContextType {
-  notifications: Notification[];
-  unreadCount: number;
-  isLoading: boolean;
-  fetchNotifications: () => Promise<void>;
-  markAsRead: (id: number) => Promise<void>;
-  markAllAsRead: () => Promise<void>;
-  deleteNotification: (id: number) => Promise<void>;
-  clearAllNotifications: () => Promise<void>;
-  addNotification: (notification: Notification) => void;
-}
-
-const NotificationsContext = createContext<NotificationsContextType | undefined>(undefined);
 
 const NotificationsProvider = ({ children }: { children: React.ReactNode }) => {
   const [notifications, setNotifications] = useState<Notification[]>([]);
@@ -53,7 +40,7 @@ const NotificationsProvider = ({ children }: { children: React.ReactNode }) => {
     } finally {
       setIsLoading(false);
     }
-  }, [api]);
+  }, [api, user]);
 
   const markAsRead = useCallback(async (id: number) => {
     try {
@@ -170,13 +157,5 @@ const NotificationsProvider = ({ children }: { children: React.ReactNode }) => {
     </NotificationsContext.Provider>
   );
 };
-
-export function useNotifications() {
-  const context = useContext(NotificationsContext);
-  if (context === undefined) {
-    throw new Error('useNotifications must be used within a NotificationsProvider');
-  }
-  return context;
-}
 
 export { NotificationsProvider };

@@ -1,5 +1,5 @@
 import { useState, FormEvent } from 'react';
-import { useApi, useAuth } from '../contexts/AuthContext';
+import { useApi, useAuth } from '../contexts/auth-hooks';
 import { useNavigate } from 'react-router-dom';
 import { Card, CardHeader, CardTitle, CardDescription, CardContent, CardFooter } from '../components/ui/card';
 import { Label } from '../components/ui/label';

@@ -18,7 +18,7 @@ import {
   CardDescription,
 } from "../ui/card";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "../ui/tabs";
-import { useApi } from "../../contexts/AuthContext";
+import { useApi } from "../../contexts/auth-hooks";
 
 interface SchoolAnalyticsRecord {
   month: string;

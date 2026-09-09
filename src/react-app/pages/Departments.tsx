@@ -1,20 +1,42 @@
-import { useState, useEffect } from 'react'
+import { useState, useEffect, useCallback } from 'react'
 import { Button } from '../components/ui/button'
 import { Card, CardHeader, CardTitle, CardContent } from '../components/ui/card'
 import { DepartmentModal } from '../components/DepartmentModal'
 import { Trash2, Edit, ShieldCheck, ShieldAlert, Building2 } from 'lucide-react'
-import { useApi } from '../contexts/AuthContext'
+import { useApi } from '../contexts/auth-hooks'
 
+interface Department {
+  id: number
+  name: string
+  code: string
+  hod_id?: number | null
+  description: string
+  hod_name?: string | null
+}
+
+interface Teacher {
+  id: number
+  name: string
+  role: string
+}
+
+interface DepartmentFormData {
+  id?: number
+  name: string
+  code: string
+  description: string
+  hod_id?: number | null
+}
 export const Departments = () => {
   const api = useApi()
-  const [departments, setDepartments] = useState<any[]>([])
-  const [teachers, setTeachers] = useState<any[]>([])
-  const [isModalOpen, setIsModalOpen] = useState(false)
-  const [selectedDept, setSelectedDept] = useState<any | null>(null)
-  const [isLoading, setIsLoading] = useState(true)
-  const [error, setError] = useState<string | null>(null)
+const [departments, setDepartments] = useState<Department[]>([])
+const [teachers, setTeachers] = useState<Teacher[]>([])
+const [isModalOpen, setIsModalOpen] = useState(false)
+const [selectedDept, setSelectedDept] = useState<Department | null>(null)
+const [isLoading, setIsLoading] = useState(true)
+const [error, setError] = useState<string | null>(null)
 
-  const fetchData = async () => {
+  const fetchData = useCallback(async () => {
     try {
       setIsLoading(true)
       setError(null)
@@ -32,16 +54,16 @@ export const Departments = () => {
     } catch (err) {
       console.error('Error loading department data:', err)
       setError('Could not load departments. Please try again.')
-    } finally {
+     } finally {
       setIsLoading(false)
     }
-  }
+  }, [api])
 
   useEffect(() => {
     fetchData()
-  }, [])
+  }, [fetchData])
 
-  const handleSave = async (deptData: any) => {
+  const handleSave = async (deptData: DepartmentFormData) => {
     const isEdit = Boolean(deptData.id)
     const url = isEdit
       ? `/api/admin/departments/${deptData.id}`

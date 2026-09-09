@@ -1,13 +1,14 @@
 import { useCallback, useEffect, useState } from 'react'
 import { Plus, Search, School, Users, DollarSign, MapPin, Phone, Mail } from 'lucide-react'
 import { Link } from 'react-router-dom'
-import { Button, buttonVariants } from '../components/ui/button'
+import { Button } from '../components/ui/button'
+import { buttonVariants } from '../components/ui/button-variants'
 import { Input } from '../components/ui/input'
 import { Card, CardContent, CardHeader, CardTitle } from '../components/ui/card'
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle, DialogTrigger } from '../components/ui/dialog'
 import { Label } from '../components/ui/label'
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '../components/ui/select'
-import { useApi } from '../contexts/AuthContext'
+import { useApi } from '../contexts/auth-hooks'
 import { cn } from '../lib/utils'
 
 type SchoolRecord = {

@@ -1,4 +1,5 @@
-import os
+import hashlib
+import secrets
 from datetime import datetime, timedelta
 from typing import Optional, Tuple, Set
 
@@ -11,10 +12,11 @@ import bcrypt
 
 from database import get_db
 
-# Configuration
-SECRET_KEY = os.getenv("JWT_SECRET", "your-super-secret-jwt-key-change-this-in-production")
-ALGORITHM = "HS256"
-ACCESS_TOKEN_EXPIRE_MINUTES = 1440  # 24 hours
+from config import settings
+
+SECRET_KEY = settings.jwt_secret
+ALGORITHM = settings.jwt_algorithm
+ACCESS_TOKEN_EXPIRE_MINUTES = settings.access_token_expire_minutes
 
 oauth2_scheme = OAuth2PasswordBearer(tokenUrl="/api/auth/login")
 
@@ -35,6 +37,28 @@ def get_password_hash(password: str) -> str:
     salt = bcrypt.gensalt(rounds=12)
     hashed_bytes = bcrypt.hashpw(password_bytes, salt)
     return hashed_bytes.decode('utf-8')
+
+
+def generate_refresh_token() -> str:
+    return secrets.token_urlsafe(64)
+
+
+def hash_refresh_token(token: str) -> str:
+    return hashlib.sha256(token.encode("utf-8")).hexdigest()
+
+
+async def create_refresh_token(db: AsyncSession, user_id: int):
+    from models import RefreshToken
+
+    raw_token = generate_refresh_token()
+    record = RefreshToken(
+        user_id=user_id,
+        token_hash=hash_refresh_token(raw_token),
+        expires_at=datetime.utcnow() + timedelta(days=settings.refresh_token_expire_days),
+    )
+    db.add(record)
+    await db.flush()
+    return raw_token, record
 
 # --- Token Creation & User Extraction ---
 

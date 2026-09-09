@@ -20,7 +20,7 @@ import {
 } from "../ui/card";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "../ui/tabs";
 import { Badge } from "../ui/badge";
-import { useApi } from "../../contexts/AuthContext";
+import { useApi } from "../../contexts/auth-hooks";
 
 const STATUS_COLORS: Record<string, string> = {
   Active: "#10B981",
@@ -143,10 +143,10 @@ export function SubscriptionStatusChart() {
                       borderColor: "hsl(var(--border))",
                       borderRadius: "var(--radius)",
                     }}
-                    formatter={(value: any, name: any) => [
-                      name === "revenue" ? `$${value}` : value,
-                      name === "revenue" ? "Revenue" : "Subscribers",
-                    ]}
+                    formatter={(value, name) => [
+  name === "revenue" ? `$${value}` : value,
+  name === "revenue" ? "Revenue" : "Subscribers",
+]}
                   />
                   <Legend />
                   <Bar
@@ -187,7 +187,7 @@ export function SubscriptionStatusChart() {
                         cx="50%"
                         cy="50%"
                         labelLine={false} 
-                        label={({ status, subscribers }: any) => `${status}: ${subscribers}`}
+                        label={({ name, value }) => `${name}: ${value}`}
                         outerRadius={80}
                         fill="#8884d8"
                         dataKey="subscribers"
@@ -213,7 +213,7 @@ export function SubscriptionStatusChart() {
                       <XAxis dataKey="status" />
                       <YAxis />
                       <Tooltip
-                        formatter={(value: any) => [`$${value}`, "Revenue"]}
+                       formatter={(value) => [`$${value}`, "Revenue"]}
                         contentStyle={{
                           backgroundColor: "hsl(var(--background))",
                           borderColor: "hsl(var(--border))",

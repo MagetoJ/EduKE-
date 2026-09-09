@@ -1,10 +1,11 @@
-import React, { useState, useEffect } from 'react';
-import { useAuth } from '../contexts/AuthContext';
+import { useState, useEffect, useCallback } from 'react';
+import { useAuth } from '../contexts/auth-hooks';
 import { Card, CardContent } from '../components/ui/card';
 import { Button } from '../components/ui/button';
 import { Input } from '../components/ui/input';
 import { Label } from '../components/ui/label';
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from '../components/ui/dialog';
+
 
 type Subject = {
   id: number;
@@ -22,7 +23,7 @@ export default function Subjects() {
   const [editingId, setEditingId] = useState<number | null>(null);
   const [formData, setFormData] = useState({ name: '', code: '' });
 
-  const fetchSubjects = async () => {
+  const fetchSubjects = useCallback(async () =>{
     setIsLoading(true);
     try {
       const res = await fetch('/api/academic/subjects', {
@@ -36,11 +37,11 @@ export default function Subjects() {
     } finally {
       setIsLoading(false);
     }
-  };
+  }, [token]);
 
   useEffect(() => {
     fetchSubjects();
-  }, []);
+  }, [fetchSubjects]);
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();

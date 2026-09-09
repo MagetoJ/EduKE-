@@ -6,7 +6,7 @@ import { Input } from '../components/ui/input'
 import { Label } from '../components/ui/label'
 import { Textarea } from '../components/ui/textarea'
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '../components/ui/select'
-import { useApi, useAuth } from '../contexts/AuthContext'
+import { useApi, useAuth } from '../contexts/auth-hooks'
 
 const hexToHsl = (hex: string) => {
   let normalized = hex.trim().replace('#', '')
@@ -266,12 +266,9 @@ export function Settings() {
       formData.append('logo', file)
 
       const query = isSuperAdmin ? `?schoolId=${encodeURIComponent(selectedSchoolId)}` : ''
-      const response = await fetch(`/api/upload/logo${query}`, {
+      const response = await api(`/api/upload/logo${query}`, {
         method: 'POST',
         body: formData,
-        headers: {
-          'Authorization': `Bearer ${localStorage.getItem('token')}`
-        }
       })
 
       const data = await response.json().catch(() => ({}))
@@ -293,7 +290,7 @@ export function Settings() {
     } finally {
       setUploadingLogo(false)
     }
-  }, [isSuperAdmin, selectedSchoolId])
+  }, [api, isSuperAdmin, selectedSchoolId])
 
   const handleAddGradeLevel = useCallback(() => {
     if (isSuperAdmin && !selectedSchoolId) {

@@ -1,7 +1,9 @@
 import os
 import requests
 import msal
-from fastapi import APIRouter, HTTPException
+from fastapi import APIRouter, Depends, HTTPException
+from auth import get_current_school, require_roles
+from models import School
 
 router = APIRouter(prefix="/api/powerbi", tags=["PowerBI"])
 
@@ -33,7 +35,10 @@ def get_azure_ad_token() -> str:
     raise HTTPException(status_code=500, detail="Failed to acquire AD Token")
 
 @router.get("/embed-token")
-def get_embed_config():
+async def get_embed_config(
+    _user=Depends(require_roles("admin", "teacher")),
+    _school: School = Depends(get_current_school),
+):
     if not all([WORKSPACE_ID, REPORT_ID]):
         raise HTTPException(
             status_code=500, 

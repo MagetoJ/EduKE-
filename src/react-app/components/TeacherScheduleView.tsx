@@ -2,6 +2,7 @@ import { useState, useEffect, useCallback, ChangeEvent } from 'react';
 import { Calendar, Clock, BookOpen, Building2, Filter, RefreshCw } from 'lucide-react';
 import { Card, CardHeader, CardTitle, CardContent } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
+import { useApi } from '@/contexts/auth-hooks';
 
 interface TimetableSlot {
   id: number;
@@ -17,6 +18,7 @@ const DAYS = ['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday'];
 const PERIODS = [1, 2, 3, 4, 5, 6, 7, 8];
 
 export default function TeacherScheduleView() {
+  const api = useApi();
   const [mySlots, setMySlots] = useState<TimetableSlot[]>([]);
   const [classesTaught, setClassesTaught] = useState<string[]>([]);
   const [selectedClassFilter, setSelectedClassFilter] = useState<string>('ALL');
@@ -25,13 +27,7 @@ export default function TeacherScheduleView() {
   const fetchMySchedule = useCallback(async () => {
     setLoading(true);
     try {
-      const token = localStorage.getItem('accessToken');
-      const res = await fetch('/api/timetables/my-schedule', {
-        headers: {
-          'Authorization': `Bearer ${token}`,
-          'Accept': 'application/json'
-        }
-      });
+      const res = await api('/api/timetables/my-schedule');
 
       if (res.ok) {
         const result = await res.json();
@@ -43,7 +39,7 @@ export default function TeacherScheduleView() {
     } finally {
       setLoading(false);
     }
-  }, []);
+  }, [api]);
 
   useEffect(() => {
     fetchMySchedule();

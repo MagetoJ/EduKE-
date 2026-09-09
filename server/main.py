@@ -9,13 +9,14 @@ import os
 import logging
 import traceback
 from contextlib import asynccontextmanager
-from datetime import timedelta
+from datetime import datetime, timedelta
 from typing import Optional
 
-from fastapi import FastAPI, Depends, HTTPException, status, Request
+from fastapi import FastAPI, Depends, HTTPException, status, Request, Response
 from fastapi.exceptions import RequestValidationError
 from fastapi.responses import JSONResponse
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.middleware.trustedhost import TrustedHostMiddleware
 
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.exc import SQLAlchemyError
@@ -25,7 +26,7 @@ from pydantic import BaseModel
 
 # Database and Core Models
 from database import get_db, init_db
-from models import User, School, school_users, UserRole
+from models import User, School, RefreshToken, school_users, UserRole
 from models_roles import ClassTeacherAssignment, AcademicDepartment
 from models_lesson_plan import LessonPlan  # noqa: F401
 from models_messaging import GuardianContact, GuardianMessage  # noqa: F401
@@ -41,8 +42,11 @@ from auth import (
     get_current_super_admin,
     ACCESS_TOKEN_EXPIRE_MINUTES,
     SECRET_KEY,
-    ALGORITHM
+    ALGORITHM,
+    create_refresh_token,
+    hash_refresh_token,
 )
+from config import settings
 
 # Route Imports
 from stubs import router as stubs_router
@@ -114,16 +118,26 @@ app = FastAPI(
 # CORS middleware
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=[
-        "https://eduke.netlify.app",
-        "http://localhost:5173", 
-        "https://eduke.app",
-        "https://www.eduke.app",
-    ],
+    allow_origins=[origin.strip() for origin in settings.frontend_url.split(",") if origin.strip()],
     allow_credentials=True,
-    allow_methods=["*"],
-    allow_headers=["*"],
+    allow_methods=["GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"],
+    allow_headers=["Authorization", "Content-Type", "Accept"],
 )
+
+if settings.environment == "production":
+    app.add_middleware(TrustedHostMiddleware, allowed_hosts=["api.eduke.app", "eduke.app", "www.eduke.app"])
+
+
+@app.middleware("http")
+async def security_headers(request: Request, call_next):
+    response = await call_next(request)
+    response.headers["X-Content-Type-Options"] = "nosniff"
+    response.headers["X-Frame-Options"] = "DENY"
+    response.headers["Referrer-Policy"] = "strict-origin-when-cross-origin"
+    response.headers["Permissions-Policy"] = "camera=(), microphone=(), geolocation=()"
+    if settings.environment == "production":
+        response.headers["Strict-Transport-Security"] = "max-age=31536000; includeSubDomains"
+    return response
 
 # ==================== ROUTER INCLUSIONS ====================
 
@@ -161,10 +175,6 @@ app.include_router(timetable_manager_router)
 app.include_router(reporting_router)
 app.include_router(powerbi_router)
 app.include_router(registrar_router)
-app.include_router(
-    timetable_manager_router,
-    dependencies=[Depends(get_current_user)]
-)
 
 # ==================== EXCEPTION HANDLERS ====================
 
@@ -242,10 +252,6 @@ class StaffUpdate(BaseModel):
     class_assigned: Optional[str] = None
     subject: Optional[str] = None
 
-class RefreshRequest(BaseModel):
-    refreshToken: str
-
-
 # ==================== AUTH ROUTES ====================
 
 @app.post("/api/auth/register-school")
@@ -299,7 +305,7 @@ async def register_school(data: SchoolRegister, db: AsyncSession = Depends(get_d
 @app.post("/api/auth/login/")
 @app.post("/api/login")
 @app.post("/api/login/")
-async def login(data: LoginRequest, db: AsyncSession = Depends(get_db)):
+async def login(data: LoginRequest, response: Response, db: AsyncSession = Depends(get_db)):
     result = await db.execute(select(User).where(User.email == data.email))
     user = result.scalar_one_or_none()
 
@@ -319,6 +325,7 @@ async def login(data: LoginRequest, db: AsyncSession = Depends(get_db)):
     school_id = membership[0] if membership else None
     role = membership[1] if membership else "super_admin"
     school_name = None
+    school_curriculum = None
     school_is_special_needs = False
     school_disability_category = "none"
 
@@ -326,9 +333,10 @@ async def login(data: LoginRequest, db: AsyncSession = Depends(get_db)):
         school_result = await db.execute(select(School).where(School.id == school_id))
         school = school_result.scalar_one_or_none()
         if school:
-            school_name = school.name
-            school_is_special_needs = getattr(school, 'is_special_needs', False)
-            school_disability_category = getattr(school, 'disability_category', 'none')
+    school_name = school.name
+    school_curriculum = getattr(school, "curriculum", None)
+    school_is_special_needs = getattr(school, "is_special_needs", False)
+    school_disability_category = getattr(school, "disability_category", "none")
 
     access_token = create_access_token(
         data={
@@ -341,6 +349,18 @@ async def login(data: LoginRequest, db: AsyncSession = Depends(get_db)):
         expires_delta=timedelta(minutes=ACCESS_TOKEN_EXPIRE_MINUTES)
     )
 
+    refresh_token_value, _refresh_record = await create_refresh_token(db, user.id)
+    await db.commit()
+    response.set_cookie(
+        key="eduke_refresh",
+        value=refresh_token_value,
+        httponly=True,
+        secure=settings.environment == "production",
+        samesite="lax",
+        max_age=settings.refresh_token_expire_days * 24 * 60 * 60,
+        path="/api/auth",
+    )
+
     return {
         "success": True,
         "data": {
@@ -350,12 +370,13 @@ async def login(data: LoginRequest, db: AsyncSession = Depends(get_db)):
                 "email": user.email,
                 "name": user.full_name,
                 "role": role,
-                "is_super_admin": user.is_super_admin,
-                "school_id": str(school_id) if school_id else None,
-                "school_name": school_name,
-                "school_is_special_needs": school_is_special_needs,
-                "school_disability_category": school_disability_category,
-                "must_change_password": False
+                   "is_super_admin": user.is_super_admin,
+    "school_id": str(school_id) if school_id else None,
+    "school_name": school_name,
+    "school_curriculum": school_curriculum,
+    "school_is_special_needs": school_is_special_needs,
+    "school_disability_category": school_disability_category,
+    "must_change_password": False
             }
         }
     }
@@ -364,39 +385,69 @@ async def login(data: LoginRequest, db: AsyncSession = Depends(get_db)):
 @app.post("/api/auth/refresh-token")
 @app.post("/api/auth/refresh-token/")
 @app.post("/api/refresh-token")
-async def refresh_token(data: RefreshRequest, request: Request):
-    auth_header = request.headers.get("Authorization")
-    token = auth_header.split(" ")[1] if auth_header and auth_header.startswith("Bearer ") else None
+async def refresh_token(request: Request, response: Response, db: AsyncSession = Depends(get_db)):
+    raw_token = request.cookies.get("eduke_refresh")
+    if not raw_token:
+        raise HTTPException(status_code=401, detail="Refresh token is required")
 
-    if token:
-        try:
-            payload = jwt.decode(token, SECRET_KEY, algorithms=[ALGORITHM], options={"verify_exp": False})
-            username = payload.get("sub")
-            school_id = payload.get("school_id")
-            is_super_admin = payload.get("is_super_admin", False)
-            school_is_special_needs = payload.get("school_is_special_needs", False)
-            school_disability_category = payload.get("school_disability_category", "none")
-            
-            if username:
-                new_token = create_access_token(
-                    data={
-                        "sub": username, 
-                        "is_super_admin": is_super_admin,
-                        "school_is_special_needs": school_is_special_needs,
-                        "school_disability_category": school_disability_category
-                    },
-                    school_id=school_id
-                )
-                return {
-                    "success": True,
-                    "data": {
-                        "accessToken": new_token
-                    }
-                }
-        except Exception as e:
-            logger.error(f"Refresh failed: {e}")
+    result = await db.execute(select(RefreshToken).where(
+        RefreshToken.token_hash == hash_refresh_token(raw_token),
+        RefreshToken.revoked_at.is_(None),
+        RefreshToken.expires_at > datetime.utcnow(),
+    ))
+    stored_token = result.scalar_one_or_none()
+    if not stored_token:
+        response.delete_cookie("eduke_refresh", path="/api/auth")
+        raise HTTPException(status_code=401, detail="Invalid or expired refresh token")
 
-    raise HTTPException(status_code=401, detail="Session expired - please login again")
+    user_result = await db.execute(select(User).where(User.id == stored_token.user_id, User.is_active == True))
+    user = user_result.scalar_one_or_none()
+    if not user:
+        raise HTTPException(status_code=401, detail="Invalid refresh token owner")
+
+    membership_result = await db.execute(select(school_users.c.school_id, school_users.c.role).where(
+        school_users.c.user_id == user.id,
+        school_users.c.is_active == True,
+    ))
+    membership = membership_result.first()
+    school_id = membership[0] if membership else None
+    if not membership and not user.is_super_admin:
+        raise HTTPException(status_code=403, detail="User is not assigned to an active school")
+
+    stored_token.revoked_at = datetime.utcnow()
+    replacement, replacement_record = await create_refresh_token(db, user.id)
+    stored_token.replaced_by_token_id = replacement_record.id
+    new_token = create_access_token(
+        data={"sub": user.username, "is_super_admin": user.is_super_admin},
+        school_id=school_id,
+    )
+    await db.commit()
+    response.set_cookie(
+        key="eduke_refresh",
+        value=replacement,
+        httponly=True,
+        secure=settings.environment == "production",
+        samesite="lax",
+        max_age=settings.refresh_token_expire_days * 24 * 60 * 60,
+        path="/api/auth",
+    )
+    return {"success": True, "data": {"accessToken": new_token}}
+
+
+@app.post("/api/auth/logout")
+async def logout(request: Request, response: Response, db: AsyncSession = Depends(get_db)):
+    raw_token = request.cookies.get("eduke_refresh")
+    if raw_token:
+        result = await db.execute(select(RefreshToken).where(
+            RefreshToken.token_hash == hash_refresh_token(raw_token),
+            RefreshToken.revoked_at.is_(None),
+        ))
+        stored_token = result.scalar_one_or_none()
+        if stored_token:
+            stored_token.revoked_at = datetime.utcnow()
+            await db.commit()
+    response.delete_cookie("eduke_refresh", path="/api/auth")
+    return {"success": True}
 
 
 # ==================== STAFF DIRECTORY ROUTES ====================

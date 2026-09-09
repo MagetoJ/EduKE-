@@ -6,7 +6,7 @@ import { Button } from '../components/ui/button'
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '../components/ui/select'
 import { Label } from '../components/ui/label'
 import { SubscriptionStatusChart } from '../components/charts/SubscriptionStatusChart'
-import { useApi, useAuth } from '../contexts/AuthContext'
+import { useApi, useAuth } from '../contexts/auth-hooks'
 
 type SubscriptionPlan = {
   id: string

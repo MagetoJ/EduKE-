@@ -13,7 +13,7 @@ import {
   Volume2,
   Accessibility
 } from 'lucide-react'
-import { useApi, useAuth } from '../contexts/AuthContext'
+import { useApi, useAuth } from '../contexts/auth-hooks'
 import { useNavigate, Navigate } from 'react-router-dom' 
 
 type SchoolRecord = {

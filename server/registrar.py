@@ -6,41 +6,27 @@ from typing import List, Optional
 from datetime import date
 import random
 from database import Base, get_db
-from auth import get_current_user
+from auth import get_current_school, get_current_user, get_effective_roles
+from models import School as CanonicalSchool
 
 router = APIRouter(prefix="/api/registrar", tags=["Academic Registrar"])
 
-# --- PERMISSIVE ROLE GUARD ---
-async def require_registrar(auth_data = Depends(get_current_user)):
-    """Safely verifies auth context and validates registrar/admin privileges."""
-    if not auth_data:
+# --- ROLE AND TENANT GUARD ---
+async def require_registrar(
+    auth_data=Depends(get_current_user),
+    school: CanonicalSchool = Depends(get_current_school),
+    db: AsyncSession = Depends(get_db),
+):
+    """Require a registrar-capable role in the authenticated school."""
+    user, _payload = auth_data
+    if user.is_super_admin:
+        return user
+
+    roles = await get_effective_roles(db, user.id, school.id)
+    if not roles.intersection({"admin", "registrar", "admission_officer"}):
         raise HTTPException(
-            status_code=status.HTTP_401_UNAUTHORIZED,
-            detail="Authentication credentials were not provided."
-        )
-
-    user = auth_data[0] if isinstance(auth_data, tuple) else auth_data
-    role_val = None
-    if isinstance(user, dict):
-        role_val = user.get("role") or user.get("roles")
-    else:
-        role_val = getattr(user, "role", None) or getattr(user, "roles", None)
-
-    user_roles = []
-    if isinstance(role_val, list):
-        user_roles = [str(r).lower() for r in role_val if r]
-    elif role_val:
-        user_roles = [str(role_val).lower()]
-
-    allowed_roles = ["super_admin", "admin", "registrar", "admission_officer"]
-
-    if not any(r in allowed_roles for r in user_roles):
-        if user and not user_roles:
-            return user
-        display_role = ", ".join(user_roles) if user_roles else "None"
-        raise HTTPException(
-            status_code=status.HTTP_403_FORBIDDEN, 
-            detail=f"Role '{display_role}' is not authorized to manage registrar records"
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Registrar privileges required",
         )
     return user
 
@@ -136,10 +122,10 @@ class BulkPromotionSchema(BaseModel):
 # --- REGISTRAR DEDICATED API ENDPOINTS ---
 
 @router.get("/metrics", dependencies=[Depends(require_registrar)])
-async def get_registrar_metrics(db: AsyncSession = Depends(get_db)):
+async def get_registrar_metrics(db: AsyncSession = Depends(get_db), school: CanonicalSchool = Depends(get_current_school)):
     """Summary stats for Registrar dashboard top cards."""
     try:
-        res = await db.execute(select(Student))
+        res = await db.execute(select(Student).where(Student.school_id == school.id))
         all_students = res.scalars().all()
         total = len(all_students)
         active = sum(1 for s in all_students if getattr(s, "status", "Active") == "Active")
@@ -152,6 +138,8 @@ async def get_registrar_metrics(db: AsyncSession = Depends(get_db)):
             "transferred_students": transferred,
             "pending_upi": pending_upi
         }
+    except HTTPException:
+        raise
     except Exception as e:
         print(f"Registrar metrics warning: {e}")
         return {
@@ -162,10 +150,10 @@ async def get_registrar_metrics(db: AsyncSession = Depends(get_db)):
         }
 
 @router.get("/students", response_model=List[StudentDetailSchema], dependencies=[Depends(require_registrar)])
-async def get_all_students(db: AsyncSession = Depends(get_db)):
+async def get_all_students(db: AsyncSession = Depends(get_db), school: CanonicalSchool = Depends(get_current_school)):
     """Retrieves full student directory sorted by newest first."""
     try:
-        result = await db.execute(select(Student).order_by(Student.id.desc()))
+        result = await db.execute(select(Student).where(Student.school_id == school.id).order_by(Student.id.desc()))
         students = result.scalars().all()
         if students:
             output = []
@@ -181,16 +169,18 @@ async def get_all_students(db: AsyncSession = Depends(get_db)):
                     "gender": getattr(s, "gender", "Male")
                 })
             return output
+    except HTTPException:
+        raise
     except Exception as e:
         print(f"Database query warning on registrar students: {e}")
     
     return []
 
 @router.get("/classes/capacity", response_model=List[ClassCapacitySchema], dependencies=[Depends(require_registrar)])
-async def get_class_capacities(db: AsyncSession = Depends(get_db)):
+async def get_class_capacities(db: AsyncSession = Depends(get_db), school: CanonicalSchool = Depends(get_current_school)):
     """Returns class enrollment capacity and breakdown."""
     try:
-        result = await db.execute(select(SchoolClass))
+        result = await db.execute(select(SchoolClass).where(SchoolClass.school_id == school.id))
         classes = result.scalars().all()
         if classes:
             return classes
@@ -203,13 +193,14 @@ async def get_class_capacities(db: AsyncSession = Depends(get_db)):
     ]
 
 @router.post("/admit", status_code=status.HTTP_201_CREATED, dependencies=[Depends(require_registrar)])
-async def admit_student(payload: AdmissionCreateSchema, db: AsyncSession = Depends(get_db)):
+async def admit_student(payload: AdmissionCreateSchema, db: AsyncSession = Depends(get_db), school: CanonicalSchool = Depends(get_current_school)):
     """Enrolls student, generates admission number, and links primary guardian."""
     try:
         random_suffix = random.randint(1000, 9999)
         adm_no = f"ADM-2026-{payload.first_name[:2].upper()}{random_suffix}"
 
         new_student = Student(
+            school_id=school.id,
             admission_number=adm_no,
             upi_number=payload.upi_number,
             first_name=payload.first_name,
@@ -219,20 +210,15 @@ async def admit_student(payload: AdmissionCreateSchema, db: AsyncSession = Depen
             current_balance=0.0
         )
         db.add(new_student)
+        await db.flush()
+        db.add(Guardian(
+            student_id=new_student.id,
+            name=payload.guardian_name,
+            relationship=payload.guardian_relation,
+            phone=payload.guardian_phone,
+        ))
         await db.commit()
         await db.refresh(new_student)
-
-        try:
-            new_guardian = Guardian(
-                student_id=new_student.id,
-                name=payload.guardian_name,
-                relationship=payload.guardian_relation,
-                phone=payload.guardian_phone
-            )
-            db.add(new_guardian)
-            await db.commit()
-        except Exception as g_err:
-            print(f"Guardian link notice: {g_err}")
 
         return {
             "success": True,
@@ -245,51 +231,49 @@ async def admit_student(payload: AdmissionCreateSchema, db: AsyncSession = Depen
                 "current_class": payload.current_class
             }
         }
-    except Exception as e:
+    except Exception:
         await db.rollback()
-        print(f"Database warning on student admission: {e}")
-        return {
-            "success": True,
-            "message": f"Successfully admitted {payload.first_name} {payload.last_name}."
-        }
+        raise HTTPException(status_code=500, detail="Unable to complete student admission")
 
 @router.put("/students/{student_id}", dependencies=[Depends(require_registrar)])
-async def update_student(student_id: int, payload: StudentUpdateSchema, db: AsyncSession = Depends(get_db)):
+async def update_student(student_id: int, payload: StudentUpdateSchema, db: AsyncSession = Depends(get_db), school: CanonicalSchool = Depends(get_current_school)):
     """Updates student biodata and placement."""
     try:
-        result = await db.execute(select(Student).where(Student.id == student_id))
+        result = await db.execute(select(Student).where(Student.id == student_id, Student.school_id == school.id))
         student = result.scalar_one_or_none()
-        if student:
-            student.first_name = payload.first_name
-            student.last_name = payload.last_name
-            student.grade = payload.current_class or student.grade
-            if payload.upi_number:
-                student.upi_number = payload.upi_number
-            if payload.status:
-                student.status = payload.status
-            await db.commit()
-            return {"success": True, "message": "Student record updated successfully."}
+        if not student:
+            raise HTTPException(status_code=404, detail="Student not found")
+        student.first_name = payload.first_name
+        student.last_name = payload.last_name
+        student.grade = payload.current_class or student.grade
+        if payload.upi_number:
+            student.upi_number = payload.upi_number
+        if payload.status:
+            student.status = payload.status
+        await db.commit()
+        return {"success": True, "message": "Student record updated successfully."}
     except Exception as e:
         await db.rollback()
         print(f"Database warning on update student: {e}")
         
-    return {"success": True, "message": "Student record updated successfully."}
+    raise HTTPException(status_code=500, detail="Unable to update student record")
 
 @router.put("/students/{student_id}/status", dependencies=[Depends(require_registrar)])
-async def change_student_status(student_id: int, payload: StatusChangeSchema, db: AsyncSession = Depends(get_db)):
+async def change_student_status(student_id: int, payload: StatusChangeSchema, db: AsyncSession = Depends(get_db), school: CanonicalSchool = Depends(get_current_school)):
     """Processes student status transitions (Transferred, Graduated, Suspended)."""
     try:
-        result = await db.execute(select(Student).where(Student.id == student_id))
+        result = await db.execute(select(Student).where(Student.id == student_id, Student.school_id == school.id))
         student = result.scalar_one_or_none()
-        if student:
-            student.status = payload.status
-            await db.commit()
-            return {"success": True, "message": f"Student status updated to {payload.status}."}
+        if not student:
+            raise HTTPException(status_code=404, detail="Student not found")
+        student.status = payload.status
+        await db.commit()
+        return {"success": True, "message": f"Student status updated to {payload.status}."}
     except Exception as e:
         await db.rollback()
         print(f"Database warning on status change: {e}")
 
-    return {"success": True, "message": f"Student status updated to {payload.status}."}
+    raise HTTPException(status_code=500, detail="Unable to update student status")
 
 @router.post("/classes/promote", dependencies=[Depends(require_registrar)])
 async def bulk_promote_class(payload: BulkPromotionSchema, db: AsyncSession = Depends(get_db)):
