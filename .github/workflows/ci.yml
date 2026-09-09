@@ -15,35 +15,35 @@ permissions:
   contents: read
 
 jobs:
-  frontend:
-    name: Frontend CI
-    runs-on: ubuntu-latest
+frontend:
+  name: Frontend CI
+  runs-on: ubuntu-latest
 
-    steps:
-      - name: Checkout repository
-        uses: actions/checkout@v6
+  steps:
+    - name: Checkout repository
+      uses: actions/checkout@v6
 
-      - name: Setup Node.js
-        uses: actions/setup-node@v7
-        with:
-          node-version: 24
-          cache: pnpm
-          cache-dependency-path: pnpm-lock.yaml
+    - name: Setup pnpm
+      uses: pnpm/action-setup@v4
+      with:
+        version: 11
+        run_install: false
 
-      - name: Setup pnpm
-        uses: pnpm/action-setup@v4
-        with:
-          version: 11
-          run_install: false
+    - name: Setup Node.js
+      uses: actions/setup-node@v7
+      with:
+        node-version: 24
+        cache: pnpm
+        cache-dependency-path: pnpm-lock.yaml
 
-      - name: Install frontend dependencies
-        run: pnpm install --frozen-lockfile
+    - name: Install frontend dependencies
+      run: pnpm install --frozen-lockfile
 
-      - name: Lint frontend
-        run: pnpm run lint
+    - name: Lint frontend
+      run: pnpm run lint
 
-      - name: Type check and build frontend
-        run: pnpm run build
+    - name: Type check and build frontend
+      run: pnpm run build
 
 
   backend:
@@ -83,19 +83,16 @@ jobs:
 
 
   repository:
-    name: Repository checks
-    runs-on: ubuntu-latest
+  name: Repository checks
+  runs-on: ubuntu-latest
 
-    steps:
-      - name: Checkout repository
-        uses: actions/checkout@v6
+  steps:
+    - name: Checkout repository
+      uses: actions/checkout@v6
 
-      - name: Check for accidentally committed environment files
-        run: |
-          if git ls-files | grep -E '(^|/)\.env($|\.)'; then
-            echo "ERROR: Environment file detected in Git."
-            exit 1
-          fi
-
-      - name: Check Git repository status
-        run: git status --short
+    - name: Check for accidentally committed environment files
+      run: |
+        if git ls-files | grep -E '(^|/)\.env$|(^|/)\.env\.(local|development|production|test)$'; then
+          echo "ERROR: Real environment file detected in Git."
+          exit 1
+        fi
