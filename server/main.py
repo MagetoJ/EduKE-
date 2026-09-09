@@ -333,10 +333,10 @@ async def login(data: LoginRequest, response: Response, db: AsyncSession = Depen
         school_result = await db.execute(select(School).where(School.id == school_id))
         school = school_result.scalar_one_or_none()
         if school:
-    school_name = school.name
-    school_curriculum = getattr(school, "curriculum", None)
-    school_is_special_needs = getattr(school, "is_special_needs", False)
-    school_disability_category = getattr(school, "disability_category", "none")
+            school_name = school.name
+            school_curriculum = getattr(school, "curriculum", None)
+            school_is_special_needs = getattr(school, "is_special_needs", False)
+            school_disability_category = getattr(school, "disability_category", "none")
 
     access_token = create_access_token(
         data={
