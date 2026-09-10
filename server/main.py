@@ -21,7 +21,7 @@ from fastapi.middleware.trustedhost import TrustedHostMiddleware
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.exc import SQLAlchemyError
 from sqlalchemy import select, insert, update, delete
-from jose import jwt
+import jwt
 from pydantic import BaseModel
 
 # Database and Core Models

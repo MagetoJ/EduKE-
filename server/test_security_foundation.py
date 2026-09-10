@@ -9,13 +9,14 @@ sys.path.insert(0, os.path.dirname(__file__))
 
 from auth import create_access_token, hash_refresh_token  # noqa: E402
 from config import Settings  # noqa: E402
-from jose import JWTError, jwt  # noqa: E402
+import jwt  # noqa: E402
+from jwt.exceptions import InvalidTokenError  # noqa: E402
 
 
 class SecurityFoundationTests(unittest.TestCase):
     def test_expired_access_tokens_are_rejected_by_default(self):
         token = create_access_token({"sub": "user@example.com"}, expires_delta=timedelta(seconds=-1))
-        with self.assertRaises(JWTError):
+        with self.assertRaises(InvalidTokenError):
             jwt.decode(token, os.environ["JWT_SECRET"], algorithms=["HS256"])
 
     def test_refresh_token_hash_does_not_equal_raw_token(self):
