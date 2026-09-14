@@ -64,24 +64,32 @@ jobs:
           cache: pip
           cache-dependency-path: server/requirements.txt
 
-      - name: Install backend dependencies & security tools
+      - name: Install backend dependencies
         run: |
           python -m pip install --upgrade pip
-          pip install -r requirements.txt pytest bandit pip-audit
+          pip install -r requirements.txt
 
-      - name: Dependency Security Audit (pip-audit)
+      - name: Install security tools
+        run: |
+          pip install bandit pip-audit
+
+      - name: Dependency Security Audit
         run: |
           pip-audit -r requirements.txt
 
-      - name: Static Security Scan (Bandit)
+      - name: Static Security Scan
         run: |
-          bandit -r . -x ./venv,./.venv,./legacy_js
+          bandit -r . -x .venv,venv,legacy_js -f screen
+
+      - name: Generate test JWT secret
+        id: test_secret
+        run: |
+          echo "jwt_secret=$(python -c 'import secrets; print(secrets.token_urlsafe(32))')" >> "$GITHUB_OUTPUT"
 
       - name: Run backend tests
         env:
-          DATABASE_URL: "sqlite:///:memory:"
-          JWT_SECRET_KEY: "ci-test-secret-key"
-          SECRET_KEY: "ci-test-secret-key"
+          DATABASE_URL: "sqlite+aiosqlite:///:memory:"
+          JWT_SECRET: ${{ steps.test_secret.outputs.jwt_secret }}
         run: |
           python -m pytest -q
 
