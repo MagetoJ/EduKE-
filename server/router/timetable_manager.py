@@ -139,7 +139,7 @@ async def auto_generate_timetable(
                 "subject_name": getattr(course, "name", "General Subject"),
                 "teacher_name": getattr(course, "teacher_name", "Assigned Teacher"),
                 "periods_per_week": getattr(course, "lessons_per_week", 4),
-                "room": getattr(course, "room", f"Room {random.randint(101, 110)}")
+                "room": getattr(course, "room", "Room 101")
             })
 
     # Track existing slot occupancy to PRESERVE current timetable layout

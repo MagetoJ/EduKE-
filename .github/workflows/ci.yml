@@ -70,6 +70,14 @@ jobs:
           python -m pip install --upgrade pip
           pip install -r requirements.txt
 
+      - name: Run backend tests
+        run: |
+          python -m pytest -q
+
+      - name: Run backend tests
+        run: |
+          python -m pytest -q
+
       - name: Compile Python source
         run: |
           python -m compileall -q .

@@ -1,13 +1,13 @@
 from fastapi import APIRouter, Depends, HTTPException, status
 from sqlalchemy.ext.asyncio import AsyncSession
-from sqlalchemy import Column, Integer, String, Float, Date, ForeignKey, Boolean, select
+from sqlalchemy import Column, Integer, String, ForeignKey, Boolean, select
 from pydantic import BaseModel, ConfigDict
-from typing import List, Optional
+from typing import List, Optional, Literal
 from datetime import date
-import random
+import secrets
 from database import Base, get_db
 from auth import get_current_school, get_current_user, get_effective_roles
-from models import School as CanonicalSchool
+from models import School as CanonicalSchool, Student, SchoolClass
 
 router = APIRouter(prefix="/api/registrar", tags=["Academic Registrar"])
 
@@ -31,20 +31,6 @@ async def require_registrar(
     return user
 
 # --- DATABASE MODELS ---
-class Student(Base):
-    __tablename__ = "students"
-    __table_args__ = {'extend_existing': True}
-    
-    id = Column(Integer, primary_key=True, index=True)
-    school_id = Column(Integer, nullable=True)
-    admission_number = Column(String, unique=True, index=True, nullable=True)
-    upi_number = Column(String, nullable=True)
-    first_name = Column(String, nullable=False)
-    last_name = Column(String, nullable=False)
-    grade = Column(String)
-    stream_section = Column(String, nullable=True)
-    status = Column(String, default="Active")
-    current_balance = Column(Float, default=0.0)
 
 class Guardian(Base):
     __tablename__ = "guardians"
@@ -58,20 +44,12 @@ class Guardian(Base):
     email = Column(String, nullable=True)
     is_emergency_contact = Column(Boolean, default=True)
 
-class SchoolClass(Base):
-    __tablename__ = "school_classes"
-    __table_args__ = {'extend_existing': True}
-    
-    id = Column(Integer, primary_key=True, index=True)
-    school_id = Column(Integer, nullable=True)
-    class_name = Column(String, nullable=False)
-    capacity = Column(Integer, default=40)
-    enrolled_count = Column(Integer, default=0)
+
 
 # --- PYDANTIC SCHEMAS ---
 class StudentDetailSchema(BaseModel):
     id: Optional[int] = None
-    admission_number: Optional[str] = "N/A"
+    admission_number: Optional[str] = None
     upi_number: Optional[str] = None
     first_name: str
     last_name: str
@@ -80,15 +58,16 @@ class StudentDetailSchema(BaseModel):
     nationality: Optional[str] = "Kenyan"
     admission_date: Optional[date] = None
     current_class: Optional[str] = "Unassigned"
-    status: str = "Active"
+    status: StudentStatus = "active"
     status_reason: Optional[str] = None
+
     model_config = ConfigDict(from_attributes=True)
 
 class StudentUpdateSchema(BaseModel):
     first_name: str
     last_name: str
-    current_class: Optional[str] = "Unassigned"
-    status: Optional[str] = "Active"
+    current_class: Optional[str] = None
+    status: Optional[StudentStatus] = None
     upi_number: Optional[str] = None
 
 class ClassCapacitySchema(BaseModel):
@@ -111,7 +90,7 @@ class AdmissionCreateSchema(BaseModel):
     guardian_relation: str
 
 class StatusChangeSchema(BaseModel):
-    status: str
+    status: StudentStatus
     reason: Optional[str] = None
     date: Optional[date] = None
 
@@ -162,10 +141,10 @@ async def get_all_students(db: AsyncSession = Depends(get_db), school: Canonical
                     "id": s.id,
                     "first_name": s.first_name,
                     "last_name": s.last_name,
-                    "admission_number": getattr(s, "admission_number", None) or f"ADM-2026-{s.id:04d}",
+                    "admission_number": s.admission_number,
                     "upi_number": getattr(s, "upi_number", None),
                     "current_class": getattr(s, "current_class", None) or getattr(s, "grade", "Unassigned"),
-                    "status": getattr(s, "status", "Active"),
+                    "status": s.status or "active",
                     "gender": getattr(s, "gender", "Male")
                 })
             return output
@@ -176,28 +155,79 @@ async def get_all_students(db: AsyncSession = Depends(get_db), school: Canonical
     
     return []
 
-@router.get("/classes/capacity", response_model=List[ClassCapacitySchema], dependencies=[Depends(require_registrar)])
-async def get_class_capacities(db: AsyncSession = Depends(get_db), school: CanonicalSchool = Depends(get_current_school)):
-    """Returns class enrollment capacity and breakdown."""
-    try:
-        result = await db.execute(select(SchoolClass).where(SchoolClass.school_id == school.id))
-        classes = result.scalars().all()
-        if classes:
-            return classes
-    except Exception as e:
-        print(f"Database warning on class capacity: {e}")
-        
-    return [
-        {"id": 1, "class_name": "Grade 7 East", "capacity": 40, "enrolled_count": 38},
-        {"id": 2, "class_name": "Grade 8 West", "capacity": 40, "enrolled_count": 42}
-    ]
+@router.get(
+    "/classes/capacity",
+    response_model=List[ClassCapacitySchema],
+    dependencies=[Depends(require_registrar)],
+)
+async def get_class_capacities(
+    db: AsyncSession = Depends(get_db),
+    school: CanonicalSchool = Depends(get_current_school),
+):
+    """Return real class enrollment counts for the authenticated school."""
 
+    result = await db.execute(
+        select(
+            SchoolClass.id,
+            SchoolClass.grade_level,
+            SchoolClass.stream_section,
+        )
+        .where(SchoolClass.school_id == school.id)
+        .order_by(SchoolClass.grade_level, SchoolClass.stream_section)
+    )
+
+    classes = result.all()
+
+    output = []
+
+    for class_id, grade_level, stream_section in classes:
+        enrollment_result = await db.execute(
+            select(Student.id)
+            .where(
+                Student.school_id == school.id,
+                Student.grade == grade_level,
+                Student.stream_section == stream_section,
+                Student.status == "active",
+            )
+        )
+
+        enrolled_count = len(enrollment_result.scalars().all())
+
+        output.append(
+            {
+                "id": class_id,
+                "class_name": f"{grade_level} {stream_section}".strip(),
+                "capacity": 0,
+                "enrolled_count": enrolled_count,
+            }
+        )
+
+    return output
+
+    
 @router.post("/admit", status_code=status.HTTP_201_CREATED, dependencies=[Depends(require_registrar)])
 async def admit_student(payload: AdmissionCreateSchema, db: AsyncSession = Depends(get_db), school: CanonicalSchool = Depends(get_current_school)):
     """Enrolls student, generates admission number, and links primary guardian."""
     try:
-        random_suffix = random.randint(1000, 9999)
-        adm_no = f"ADM-2026-{payload.first_name[:2].upper()}{random_suffix}"
+        current_year = date.today().year
+
+        for _ in range(10):
+            random_suffix = secrets.randbelow(900000) + 100000
+            adm_no = f"ADM-{current_year}-{random_suffix}"
+
+            existing = await db.execute(
+                select(Student.id).where(
+                    Student.admission_number == adm_no
+                )
+            )
+
+            if existing.scalar_one_or_none() is None:
+                break
+        else:
+            raise HTTPException(
+                status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+                detail="Unable to generate a unique admission number",
+            )
 
         new_student = Student(
             school_id=school.id,
@@ -206,7 +236,7 @@ async def admit_student(payload: AdmissionCreateSchema, db: AsyncSession = Depen
             first_name=payload.first_name,
             last_name=payload.last_name,
             grade=payload.current_class,
-            status="Active",
+            status="active",
             current_balance=0.0
         )
         db.add(new_student)

@@ -349,7 +349,11 @@ async def login(data: LoginRequest, response: Response, db: AsyncSession = Depen
         expires_delta=timedelta(minutes=ACCESS_TOKEN_EXPIRE_MINUTES)
     )
 
-    refresh_token_value, _refresh_record = await create_refresh_token(db, user.id)
+    refresh_token_value, _refresh_record = await create_refresh_token(
+    db,
+    user.id,
+    school_id,
+)
     await db.commit()
     response.set_cookie(
         key="eduke_refresh",
@@ -376,7 +380,7 @@ async def login(data: LoginRequest, response: Response, db: AsyncSession = Depen
     "school_curriculum": school_curriculum,
     "school_is_special_needs": school_is_special_needs,
     "school_disability_category": school_disability_category,
-    "must_change_password": False
+    "must_change_password": False #nosec B105
             }
         }
     }
@@ -415,7 +419,11 @@ async def refresh_token(request: Request, response: Response, db: AsyncSession =
         raise HTTPException(status_code=403, detail="User is not assigned to an active school")
 
     stored_token.revoked_at = datetime.utcnow()
-    replacement, replacement_record = await create_refresh_token(db, user.id)
+    replacement, replacement_record = await create_refresh_token(
+    db,
+    user.id,
+    stored_token.school_id,
+)
     stored_token.replaced_by_token_id = replacement_record.id
     new_token = create_access_token(
         data={"sub": user.username, "is_super_admin": user.is_super_admin},
@@ -663,4 +671,9 @@ async def root():
 
 if __name__ == "__main__":
     import uvicorn
-    uvicorn.run("main:app", host="0.0.0.0", port=int(os.environ.get("PORT", 3001)), reload=True)
+    uvicorn.run(
+    "main:app",
+    host=os.environ.get("HOST", "127.0.0.1"),
+    port=int(os.environ.get("PORT", 3001)),
+    reload=True,
+)

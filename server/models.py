@@ -133,7 +133,18 @@ class RefreshToken(Base):
     __tablename__ = "refresh_tokens"
 
     id = Column(Integer, primary_key=True, index=True)
-    user_id = Column(Integer, ForeignKey("users.id", ondelete="CASCADE"), nullable=False, index=True)
+    user_id = Column(
+        Integer,
+        ForeignKey("users.id", ondelete="CASCADE"),
+        nullable=False,
+        index=True,
+    )
+    school_id = Column(
+        Integer,
+        ForeignKey("schools.id", ondelete="CASCADE"),
+        nullable=True,
+        index=True,
+    )
     token_hash = Column(String(64), unique=True, nullable=False, index=True)
     expires_at = Column(DateTime, nullable=False, index=True)
     revoked_at = Column(DateTime, nullable=True, index=True)
@@ -152,7 +163,8 @@ class Student(Base):
     last_name = Column(String(100), nullable=False)
     grade = Column(String(20), nullable=False)
     stream_section = Column(String(20), nullable=True) # Add this to align with streams
-    admission_number = Column(String(50), unique=True, nullable=True) # Add this
+    admission_number = Column(String(50), unique=True, nullable=True) 
+    upi_number = Column(String(50), nullable=True)# Add this
     status = Column(String(20), default="active") # active, suspended, inactive
     current_balance = Column(Float, default=0.0)
     

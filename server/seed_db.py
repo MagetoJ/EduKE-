@@ -17,10 +17,7 @@ if not os.getenv("DATABASE_URL"):
     print("❌ ERROR: DATABASE_URL is not set. Add it to your .env file before running this.")
     sys.exit(1)
 
-try:
-    from seed_superadmin import create_superadmin
-except ImportError:
-    from seed_superadmin import create_superadmin
+from seed_superadmin import create_superadmin
 
 
 async def run_seeding():
@@ -29,7 +26,8 @@ async def run_seeding():
         await create_superadmin()
         print("Successfully seeded master database accounts!")
     except Exception as e:
-        print(f"Error during seeding: {e}")
+        print(f"Error during seeding: {e}", file=sys.stderr)
+        raise
 
 
 if __name__ == "__main__":

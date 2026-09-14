@@ -1,9 +1,11 @@
 import asyncio
+import os
 from datetime import date
 from sqlalchemy.ext.asyncio import async_sessionmaker
 from sqlalchemy import select, inspect
 
 from database import engine
+from auth import get_password_hash
 import models
 from models import (
     User, Student, ParentStudentLink, Attendance,
@@ -13,6 +15,12 @@ from models import (
 AsyncSessionLocal = async_sessionmaker(bind=engine, expire_on_commit=False)
 
 async def seed_data():
+    password = os.getenv("PORTAL_TEST_PASSWORD")
+    if not password:
+        raise RuntimeError(
+            "PORTAL_TEST_PASSWORD must be set before creating the test parent."
+        )
+
     async with AsyncSessionLocal() as db:
         # 1. Fetch a target student
         result = await db.execute(select(Student).limit(1))
@@ -66,11 +74,11 @@ async def seed_data():
 
             # Map password
             if "password_hash" in user_columns:
-                user_kwargs["password_hash"] = "pbkdf2:sha256:fakehashforlocaltesting"
+                user_kwargs["password_hash"] = get_password_hash(password)
             elif "hashed_password" in user_columns:
-                user_kwargs["hashed_password"] = "pbkdf2:sha256:fakehashforlocaltesting"
+                user_kwargs["hashed_password"] = get_password_hash(password)
             elif "password" in user_columns:
-                user_kwargs["password"] = "pbkdf2:sha256:fakehashforlocaltesting"
+                user_kwargs["password"] = get_password_hash(password)
 
             # Map active status
             if "is_active" in user_columns:

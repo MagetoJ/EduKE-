@@ -49,10 +49,22 @@ async def get_embed_config(
     
     # Generate Embed Token
     token_url = f"https://api.powerbi.com/v1.0/myorg/groups/{WORKSPACE_ID}/reports/{REPORT_ID}/GenerateToken"
-    token_res = requests.post(token_url, json={"accessLevel": "View"}, headers=headers)
-    
+
+    try:
+        token_res = requests.post(
+            token_url,
+            json={"accessLevel": "View"},
+            headers=headers,
+            timeout=(5, 15),
+        )
+    except requests.RequestException:
+        raise HTTPException(
+            status_code=502,
+            detail="Power BI service is temporarily unavailable",
+        )
+
     if token_res.status_code != 200:
-        raise HTTPException(status_code=500, detail="Failed to generate Power BI Embed Token")
+        raise HTTPException(status_code=502, detail="Failed to generate Power BI Embed Token")
     
     return {
         "reportId": REPORT_ID,

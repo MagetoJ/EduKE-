@@ -1,6 +1,6 @@
 import hashlib
 import secrets
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 from typing import Optional, Tuple, Set
 
 from fastapi import Depends, HTTPException, status
@@ -48,14 +48,21 @@ def hash_refresh_token(token: str) -> str:
     return hashlib.sha256(token.encode("utf-8")).hexdigest()
 
 
-async def create_refresh_token(db: AsyncSession, user_id: int):
+async def create_refresh_token(
+    db: AsyncSession,
+    user_id: int,
+    school_id: Optional[int] = None,
+):
     from models import RefreshToken
 
     raw_token = generate_refresh_token()
     record = RefreshToken(
         user_id=user_id,
+        school_id=school_id,
         token_hash=hash_refresh_token(raw_token),
-        expires_at=datetime.utcnow() + timedelta(days=settings.refresh_token_expire_days),
+        expires_at=datetime.utcnow() + timedelta(
+            days=settings.refresh_token_expire_days
+        ),
     )
     db.add(record)
     await db.flush()
@@ -63,20 +70,31 @@ async def create_refresh_token(db: AsyncSession, user_id: int):
 
 # --- Token Creation & User Extraction ---
 
-def create_access_token(data: dict, school_id: Optional[int] = None, expires_delta: Optional[timedelta] = None) -> str:
-    """Create a JWT access token with optional school_id scoping"""
+def create_access_token(
+    data: dict,
+    school_id: Optional[int] = None,
+    expires_delta: Optional[timedelta] = None,
+) -> str:
+    """Create a JWT access token with optional school_id scoping."""
     to_encode = data.copy()
+
     if expires_delta:
-        expire = datetime.utcnow() + expires_delta
+        expire = datetime.now(timezone.utc) + expires_delta
     else:
-        expire = datetime.utcnow() + timedelta(minutes=ACCESS_TOKEN_EXPIRE_MINUTES)
-    
+        expire = datetime.now(timezone.utc) + timedelta(
+            minutes=settings.access_token_expire_minutes
+        )
+
     to_encode.update({"exp": expire})
-    
+
     if school_id is not None:
-        to_encode.update({"school_id": school_id})
-    
-    return jwt.encode(to_encode, SECRET_KEY, algorithm=ALGORITHM)
+        to_encode["school_id"] = school_id
+
+    return jwt.encode(
+        to_encode,
+        settings.jwt_secret,
+        algorithm=settings.jwt_algorithm,
+    )
 
 async def get_current_user(token: str = Depends(oauth2_scheme), db: AsyncSession = Depends(get_db)) -> Tuple[any, dict]:
     """Dependency to validate JWT and return the user model instance and token payload."""

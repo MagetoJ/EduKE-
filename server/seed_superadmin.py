@@ -1,10 +1,17 @@
 import asyncio
+import os
 from database import async_session_maker
 from models import User, School, school_users, UserRole
 from auth import get_password_hash
 from sqlalchemy import select, insert
 
 async def create_superadmin():
+    password = os.getenv("SUPERADMIN_INITIAL_PASSWORD")
+    if not password:
+        raise RuntimeError(
+            "SUPERADMIN_INITIAL_PASSWORD must be set before creating the superadmin."
+        )
+
     async with async_session_maker() as db:
         # 1. Create Platform School if it doesn't exist
         result = await db.execute(select(School).where(School.slug == "platform-admin"))
@@ -24,7 +31,6 @@ async def create_superadmin():
         # 2. Create SuperAdmin User
         username = "superadmin"
         email = "superadmin@eduke.com"
-        password = "superadmin123"
         
         result = await db.execute(select(User).where(User.username == username))
         user = result.scalar_one_or_none()
@@ -63,12 +69,7 @@ async def create_superadmin():
             print("Linked SuperAdmin to Platform school")
         
         await db.commit()
-        print("\n" + "="*40)
-        print("SUPERADMIN CREDENTIALS")
-        print(f"Email: {email}")
-        print(f"Username: {username}")
-        print(f"Password: {password}")
-        print("="*40)
+        print(f"Superadmin account ready: {email}")
 
 if __name__ == "__main__":
     asyncio.run(create_superadmin())

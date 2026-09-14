@@ -278,7 +278,7 @@ async def transition_student_to_senior_pathway(
                     status_code=400,
                     detail=(
                         f"Pathway rule violation: must select at least "
-                        f"{rule.min_required_from_pool} subjects from {rule.pool_group_name}."
+                        f"{rule.min_required_from_pool} subjects from {rule.pool_group_name}."  # nosec B608
                     ),
                 )
 

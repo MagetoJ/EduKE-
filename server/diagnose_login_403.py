@@ -46,8 +46,7 @@ async def diagnose(email: str):
         if not rows:
             print("❌ No rows in school_users for this user at all.")
             print("   Fix: insert a row into school_users linking this user to a school, e.g.:")
-            print(f"   INSERT INTO school_users (school_id, user_id, role, is_active) "
-                  f"VALUES (<school_id>, {user.id}, 'admin', true);")
+            print("   Fix: create an active school_users membership for this user with the appropriate school and role.")
             return
 
         print(f"Found {len(rows)} school_users row(s):")
@@ -60,8 +59,7 @@ async def diagnose(email: str):
         active_rows = [r for r in rows if r.is_active]
         if not active_rows:
             print("\n❌ This is your problem: user has school_users row(s), but none are is_active=True.")
-            print("   Fix: UPDATE school_users SET is_active = true WHERE user_id = "
-                  f"{user.id} AND school_id = <school_id>;")
+            print("   Fix: activate the user's school_users membership for the appropriate school.")
         else:
             print("\n✅ User has at least one active school membership — login should not 403 for this reason.")
             print("   If it's still failing, double check you're hitting the same DATABASE_URL as this script.")
