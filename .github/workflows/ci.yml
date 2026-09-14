@@ -46,7 +46,7 @@ jobs:
         run: pnpm run build
 
   backend:
-    name: Backend CI
+    name: Backend CI & DevSecOps
     runs-on: ubuntu-latest
 
     defaults:
@@ -64,10 +64,18 @@ jobs:
           cache: pip
           cache-dependency-path: server/requirements.txt
 
-      - name: Install backend dependencies
+      - name: Install backend dependencies & security tools
         run: |
           python -m pip install --upgrade pip
-          pip install -r requirements.txt pytest
+          pip install -r requirements.txt pytest bandit pip-audit
+
+      - name: Dependency Security Audit (pip-audit)
+        run: |
+          pip-audit -r requirements.txt
+
+      - name: Static Security Scan (Bandit)
+        run: |
+          bandit -r . -x ./venv,./.venv,./legacy_js
 
       - name: Run backend tests
         env:

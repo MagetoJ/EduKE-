@@ -25,9 +25,35 @@ jobs:
           fetch-depth: 0
 
       - name: Run Gitleaks
-        uses: gitleaks/gitleaks-action@v2
+        uses: gitleaks/gitleaks-action@v3
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+  pnpm-audit:
+    name: Frontend Dependency Audit
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v6
+
+      - name: Setup pnpm
+        uses: pnpm/action-setup@v4
+        with:
+          version: 11
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v7
+        with:
+          node-version: 24
+          cache: pnpm
+
+      - name: Install frontend dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Audit frontend dependencies
+        run: pnpm audit
+
   pip-audit:
     name: Python Dependency Audit
     runs-on: ubuntu-latest
@@ -40,20 +66,17 @@ jobs:
         uses: actions/setup-python@v6
         with:
           python-version: "3.13"
-          cache: pip
-          cache-dependency-path: server/requirements.txt
 
-      - name: Install dependencies
-        working-directory: server
+      - name: Install pip-audit
         run: |
           python -m pip install --upgrade pip
-          pip install -r requirements.txt
           pip install pip-audit
 
-      - name: Audit dependencies
+      - name: Audit Python dependencies
         working-directory: server
         run: |
-          pip-audit
+          pip-audit -r requirements.txt
+
   bandit:
     name: Python Security Scan
     runs-on: ubuntu-latest
@@ -72,16 +95,20 @@ jobs:
           python -m pip install --upgrade pip
           pip install bandit
 
-      - name: Run Bandit
+      - name: Run Bandit (Console Output)
+        working-directory: server
         run: |
-          bandit -r server \
-            --exclude server/.venv,server/__pycache__ \
-            -f json \
-            -o bandit-report.json
+          bandit -r . -x ./venv,./.venv,./legacy_js,./__pycache__
 
-      - name: Upload Bandit report
+      - name: Generate Bandit JSON Report
         if: always()
-        uses: actions/upload-artifact@v5
+        working-directory: server
+        run: |
+          bandit -r . -x ./venv,./.venv,./legacy_js,./__pycache__ -f json -o bandit-report.json || true
+
+      - name: Upload Bandit Report
+        if: always()
+        uses: actions/upload-artifact@v4
         with:
           name: bandit-report
-          path: bandit-report.json
+          path: server/bandit-report.json
